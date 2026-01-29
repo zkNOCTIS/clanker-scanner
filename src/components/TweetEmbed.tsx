@@ -17,7 +17,7 @@ declare global {
   }
 }
 
-export function TweetEmbed({ tweetId, contractAddress }: { tweetId: string; contractAddress?: string }) {
+export function TweetEmbed({ tweetId, contractAddress, onDeleted }: { tweetId: string; contractAddress?: string; onDeleted?: () => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
 
@@ -44,12 +44,14 @@ export function TweetEmbed({ tweetId, contractAddress }: { tweetId: string; cont
         // Check if tweet failed to load or shows "not found"
         if (!element) {
           setFailed(true);
+          onDeleted?.();
         } else {
           // Check if Twitter rendered a "not found" message
           setTimeout(() => {
             const text = containerRef.current?.textContent?.toLowerCase() || "";
             if (text.includes("not found") || text.includes("unavailable")) {
               setFailed(true);
+              onDeleted?.();
             }
           }, 500);
         }

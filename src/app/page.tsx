@@ -10,6 +10,13 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [mcaps, setMcaps] = useState<Record<string, number>>({});
   const seenRef = useRef<Set<string>>(new Set());
+  const deletedRef = useRef<Set<string>>(new Set());
+
+  // Remove token when tweet is detected as deleted
+  const handleTweetDeleted = (contractAddress: string) => {
+    deletedRef.current.add(contractAddress);
+    setTokens((prev) => prev.filter((t) => t.contract_address !== contractAddress));
+  };
 
   // Fetch mcaps for sidebar
   useEffect(() => {
@@ -41,7 +48,7 @@ export default function Home() {
         setError(null);
 
         const unseen = newTokens.filter(
-          (t) => !seenRef.current.has(t.contract_address) && hasRealSocialContext(t)
+          (t) => !seenRef.current.has(t.contract_address) && !deletedRef.current.has(t.contract_address) && hasRealSocialContext(t)
         );
 
         if (unseen.length > 0) {
@@ -109,7 +116,7 @@ export default function Home() {
               <div className="max-w-3xl mx-auto space-y-4">
                 {tokens.map((token, index) => (
                   <div key={token.contract_address} id={`token-${token.contract_address}`}>
-                    <TokenCard token={token} isLatest={index === 0} />
+                    <TokenCard token={token} isLatest={index === 0} onTweetDeleted={() => handleTweetDeleted(token.contract_address)} />
                   </div>
                 ))}
               </div>

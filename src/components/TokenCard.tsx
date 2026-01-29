@@ -24,7 +24,7 @@ function formatTimeAgo(dateStr: string): string {
   return `${Math.floor(diffHr / 24)}d ago`;
 }
 
-export function TokenCard({ token, isLatest }: { token: ClankerToken; isLatest?: boolean }) {
+export function TokenCard({ token, isLatest, onTweetDeleted }: { token: ClankerToken; isLatest?: boolean; onTweetDeleted?: () => void }) {
   const [mcap, setMcap] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
   const [, setTick] = useState(0);
@@ -209,7 +209,7 @@ export function TokenCard({ token, isLatest }: { token: ClankerToken; isLatest?:
       {/* Tweet Embed - only for X platform */}
       {tweetId && platform === "X" && (
         <div className="border-t border-[#30363d] p-3">
-          <TweetEmbed tweetId={tweetId} contractAddress={token.contract_address} />
+          <TweetEmbed tweetId={tweetId} contractAddress={token.contract_address} onDeleted={onTweetDeleted} />
         </div>
       )}
 

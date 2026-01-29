@@ -107,6 +107,7 @@ const BLOCKED_USERNAMES: string[] = [
   "dront08",
   "donibas27",
   "botak1118",
+  "b0bbythakkar",
 ];
 
 export function hasRealSocialContext(token: ClankerToken): boolean {

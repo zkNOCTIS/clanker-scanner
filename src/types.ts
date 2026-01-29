@@ -102,12 +102,30 @@ export function getCastUrl(token: ClankerToken): string | null {
   return null;
 }
 
+// Blocklisted Twitter usernames (spammers who delete tweets)
+const BLOCKED_USERNAMES = [
+  "multichainchad",
+  // Add more as needed
+];
+
 export function hasRealSocialContext(token: ClankerToken): boolean {
   const castHash = token.cast_hash || "";
+
+  // Check if deployer is blocklisted
+  const msgId = token.social_context?.messageId || "";
+  const username = getTwitterUsername(msgId);
+  if (username && BLOCKED_USERNAMES.includes(username.toLowerCase())) {
+    return false;
+  }
 
   // For X/Twitter - must have extractable tweet ID for embedding
   const tweetUrl = getTweetUrl(token);
   if (tweetUrl) {
+    // Also check username from tweet URL
+    const urlUsername = getTwitterUsername(tweetUrl);
+    if (urlUsername && BLOCKED_USERNAMES.includes(urlUsername.toLowerCase())) {
+      return false;
+    }
     const tweetId = getTweetId(tweetUrl);
     if (tweetId) return true;
   }

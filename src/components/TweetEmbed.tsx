@@ -41,9 +41,17 @@ export function TweetEmbed({ tweetId, contractAddress }: { tweetId: string; cont
           cards: "visible",
           width: 550,
         });
-        // createTweet returns undefined if tweet doesn't exist
+        // Check if tweet failed to load or shows "not found"
         if (!element) {
           setFailed(true);
+        } else {
+          // Check if Twitter rendered a "not found" message
+          setTimeout(() => {
+            const text = containerRef.current?.textContent?.toLowerCase() || "";
+            if (text.includes("not found") || text.includes("unavailable")) {
+              setFailed(true);
+            }
+          }, 500);
         }
       }
     };

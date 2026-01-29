@@ -78,27 +78,19 @@ export function TweetEmbed({ tweetId, contractAddress }: { tweetId: string; cont
           <div className="text-gray-500 text-sm">Loading tweet...</div>
         </div>
       )}
-      {status === "deleted" && (
-        <div className="flex flex-col items-center justify-center gap-2 min-h-[80px]">
-          <div className="flex items-center gap-2 text-red-400 text-sm">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+      {status === "deleted" && contractAddress && (
+        <div className="flex items-center justify-center min-h-[60px]">
+          <a
+            href={`https://x.com/search?q=${contractAddress}&src=typed_query`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 text-gray-500 text-sm hover:text-white transition-colors"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
             </svg>
-            Tweet deleted
-          </div>
-          {contractAddress && (
-            <a
-              href={`https://x.com/search?q=${contractAddress}&src=typed_query`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 text-gray-400 text-xs hover:text-white transition-colors"
-            >
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-              </svg>
-              Search on X
-            </a>
-          )}
+            Search for tweet on X
+          </a>
         </div>
       )}
     </div>

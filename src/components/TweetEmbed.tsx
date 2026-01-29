@@ -41,21 +41,10 @@ export function TweetEmbed({ tweetId, contractAddress, onDeleted }: { tweetId: s
           cards: "visible",
           width: 550,
         });
-        // Check if tweet failed to load or shows "not found"
+        // Check if tweet failed to load
         if (!element) {
           setFailed(true);
           onDeleted?.();
-        } else {
-          // Check height after render - deleted tweets are ~150px, real tweets are 200px+
-          setTimeout(() => {
-            const iframe = containerRef.current?.querySelector('iframe');
-            const height = iframe?.clientHeight || element.clientHeight || 0;
-            // "Not found" embeds are typically under 180px
-            if (height > 0 && height < 180) {
-              setFailed(true);
-              onDeleted?.();
-            }
-          }, 1000);
         }
       }
     };

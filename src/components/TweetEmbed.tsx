@@ -48,11 +48,18 @@ export function TweetEmbed({ tweetId, contractAddress }: { tweetId: string; cont
       }
     };
 
-    // Wait for Twitter script to load
+    // Wait for Twitter script to load with timeout
+    let attempts = 0;
+    const maxAttempts = 100; // 10 seconds max
     const checkInterval = setInterval(() => {
+      attempts++;
       if (window.twttr) {
         clearInterval(checkInterval);
         renderTweet();
+      } else if (attempts >= maxAttempts) {
+        // Timeout - assume tweet unavailable
+        clearInterval(checkInterval);
+        setStatus("deleted");
       }
     }, 100);
 

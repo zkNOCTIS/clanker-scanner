@@ -61,12 +61,18 @@ export function TweetEmbed({ tweetId, contractAddress }: { tweetId: string; cont
   }, [tweetId]);
 
   return (
-    <div ref={containerRef} className="min-h-[80px] flex items-center justify-center">
+    <div className="min-h-[80px]">
+      {/* Tweet container - always rendered, hidden when not success */}
+      <div ref={containerRef} className={status === "success" ? "" : "hidden"} />
+
+      {/* Status messages */}
       {status === "loading" && (
-        <div className="text-gray-500 text-sm">Loading tweet...</div>
+        <div className="flex items-center justify-center min-h-[80px]">
+          <div className="text-gray-500 text-sm">Loading tweet...</div>
+        </div>
       )}
       {status === "deleted" && (
-        <div className="flex flex-col items-center gap-2">
+        <div className="flex flex-col items-center justify-center gap-2 min-h-[80px]">
           <div className="flex items-center gap-2 text-red-400 text-sm">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />

@@ -209,7 +209,7 @@ export function TokenCard({ token, isLatest }: { token: ClankerToken; isLatest?:
       {/* Tweet Embed - only for X platform */}
       {tweetId && platform === "X" && (
         <div className="border-t border-[#30363d] p-3">
-          <TweetEmbed tweetId={tweetId} />
+          <TweetEmbed tweetId={tweetId} contractAddress={token.contract_address} />
         </div>
       )}
 

@@ -104,7 +104,7 @@ export function getCastUrl(token: ClankerToken): string | null {
 
 // Blocklisted Twitter usernames (spammers who delete tweets)
 const BLOCKED_USERNAMES: string[] = [
-  // Add usernames here
+  "dront08",
 ];
 
 export function hasRealSocialContext(token: ClankerToken): boolean {

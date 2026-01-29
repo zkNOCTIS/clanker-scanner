@@ -8,7 +8,22 @@ export default function Home() {
   const [tokens, setTokens] = useState<ClankerToken[]>([]);
   const [scanning, setScanning] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [mcaps, setMcaps] = useState<Record<string, number>>({});
   const seenRef = useRef<Set<string>>(new Set());
+
+  // Fetch mcaps for sidebar
+  useEffect(() => {
+    tokens.forEach(async (token) => {
+      if (mcaps[token.contract_address]) return;
+      try {
+        const res = await fetch(`/api/mcap/${token.contract_address}`);
+        const data = await res.json();
+        if (data.mcap) {
+          setMcaps((prev) => ({ ...prev, [token.contract_address]: data.mcap }));
+        }
+      } catch {}
+    });
+  }, [tokens]);
 
   useEffect(() => {
     if (!scanning) return;
@@ -82,18 +97,64 @@ export default function Home() {
 
       {/* Content */}
       <div className="max-w-[1800px] mx-auto px-4 py-6">
-        {tokens.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-32 text-gray-500 font-mono">
-            <div className="text-4xl mb-4">◉</div>
-            <div>Watching for new deploys...</div>
+        <div className="flex gap-6">
+          {/* Main feed */}
+          <div className="flex-1 min-w-0">
+            {tokens.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-32 text-gray-500 font-mono">
+                <div className="text-4xl mb-4">◉</div>
+                <div>Watching for new deploys...</div>
+              </div>
+            ) : (
+              <div className="max-w-3xl mx-auto space-y-4">
+                {tokens.map((token, index) => (
+                  <div key={token.contract_address} id={`token-${token.contract_address}`}>
+                    <TokenCard token={token} isLatest={index === 0} />
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        ) : (
-          <div className="max-w-3xl mx-auto space-y-4">
-            {tokens.map((token, index) => (
-              <TokenCard key={token.contract_address} token={token} isLatest={index === 0} />
-            ))}
+
+          {/* Sidebar - Recent tokens */}
+          <div className="hidden lg:block w-72 flex-shrink-0">
+            <div className="sticky top-20 bg-[#161b22] border border-[#30363d] rounded-sm">
+              <div className="px-3 py-2 border-b border-[#30363d]">
+                <span className="font-mono text-sm text-[#00d9ff]">RECENT ({tokens.length})</span>
+              </div>
+              <div className="max-h-[70vh] overflow-y-auto">
+                {tokens.slice(0, 15).map((token, index) => {
+                  const timeAgo = Math.floor((Date.now() - new Date(token.created_at).getTime()) / 1000);
+                  const timeStr = timeAgo < 60 ? `${timeAgo}s` : timeAgo < 3600 ? `${Math.floor(timeAgo / 60)}m` : `${Math.floor(timeAgo / 3600)}h`;
+
+                  return (
+                    <button
+                      key={token.contract_address}
+                      onClick={() => {
+                        document.getElementById(`token-${token.contract_address}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+                      }}
+                      className={`w-full px-3 py-2 flex items-center justify-between hover:bg-[#30363d]/50 transition-colors text-left ${index === 0 ? "bg-[#00ff88]/5" : ""}`}
+                    >
+                      <div className="min-w-0">
+                        <div className="font-mono text-sm text-white truncate">${token.symbol}</div>
+                        <div className="font-mono text-xs text-gray-500">{timeStr} ago</div>
+                      </div>
+                      <span className="font-mono text-xs text-[#00ff88]">
+                        {mcaps[token.contract_address]
+                          ? `$${mcaps[token.contract_address] >= 1000000
+                              ? (mcaps[token.contract_address] / 1000000).toFixed(1) + 'M'
+                              : mcaps[token.contract_address] >= 1000
+                                ? (mcaps[token.contract_address] / 1000).toFixed(0) + 'K'
+                                : mcaps[token.contract_address].toFixed(0)}`
+                          : '...'}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
-        )}
+        </div>
       </div>
     </main>
   );

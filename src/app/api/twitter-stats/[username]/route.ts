@@ -3,8 +3,8 @@ import { NextResponse } from "next/server";
 const FRONTRUNPRO_API = 'https://loadbalance.frontrun.pro/api/v1/twitter';
 const FRONTRUNPRO_SESSION_TOKEN = process.env.FRONTRUNPRO_SESSION_TOKEN;
 
-// Cache responses for 5 minutes to reduce API calls
-export const revalidate = 300;
+// Cache responses for 6 hours (smart followers change slowly)
+export const revalidate = 21600;
 
 export async function GET(
   req: Request,

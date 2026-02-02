@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
-// Cache responses for 5 minutes to reduce API calls
-export const revalidate = 300;
+// Cache responses for 6 hours to reduce API calls
+export const revalidate = 21600;
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);

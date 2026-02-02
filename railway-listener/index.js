@@ -174,22 +174,16 @@ async function checkFarcasterUserHasX(fid) {
 
     const user = data.users[0];
 
-    // Check if user has verified X account
-    const hasVerifiedX = user.verified_addresses?.eth_addresses?.length > 0 ||
-                        (user.verifications && user.verifications.length > 0);
+    // Check if user has verified X account in verified_accounts
+    const verifiedXAccount = user.verified_accounts?.find(acc => acc.platform === 'x');
 
-    // Check if user profile contains X/Twitter username
-    const hasXUsername = user.username &&
-                        (user.profile?.bio?.twitter_username ||
-                         user.viewer_context?.following);
-
-    if (hasVerifiedX || hasXUsername) {
-      console.log(`✅ Farcaster user ${fid} (@${user.username}) has linked X account`);
-      return true;
+    if (verifiedXAccount && verifiedXAccount.username) {
+      console.log(`✅ Farcaster user ${fid} (@${user.username}) has linked X account: @${verifiedXAccount.username}`);
+      return { hasLinkedX: true, xUsername: verifiedXAccount.username };
     }
 
     console.log(`❌ Farcaster user ${fid} (@${user.username}) has NO linked X account`);
-    return false;
+    return { hasLinkedX: false, xUsername: null };
   } catch (error) {
     console.error('Error checking Farcaster user:', error.message);
     return false;
@@ -235,14 +229,15 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
     console.log(`   FID: ${txData.id}`);
     console.log(`   Cast: ${txData.messageId || 'N/A'}`);
 
-    const hasLinkedX = await checkFarcasterUserHasX(txData.id);
+    const xVerification = await checkFarcasterUserHasX(txData.id);
 
-    if (!hasLinkedX) {
+    if (!xVerification.hasLinkedX) {
       console.log('⚠️  Farcaster user has NO linked X account, skipping');
       return;
     }
 
-    console.log('✅ Farcaster user has linked X account - proceeding');
+    console.log(`✅ Farcaster user has linked X account (@${xVerification.xUsername}) - proceeding`);
+    txData.xUsername = xVerification.xUsername; // Add X username to txData
   } else {
     console.log('⚠️  No Twitter URL or Farcaster FID found, skipping');
     return;
@@ -268,7 +263,8 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
       interface: txData.interface || (hasTwitter ? 'twitter' : 'farcaster'),
       platform: hasTwitter ? 'X' : 'farcaster',
       messageId: txData.messageId || txData.tweetUrl || '',
-      id: txData.id || ''
+      id: txData.id || '',
+      xUsername: txData.xUsername || null // X username for verified Farcaster users
     }
   };
 

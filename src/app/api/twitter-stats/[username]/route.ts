@@ -37,8 +37,10 @@ export async function GET(
 
     const data = await response.json();
 
+    console.log(`FrontRunPro response for ${username}:`, JSON.stringify(data));
+
     return NextResponse.json({
-      smart_followers: data.smart_followers
+      smart_followers: data.data?.totalCount || 0
     });
 
   } catch (error) {

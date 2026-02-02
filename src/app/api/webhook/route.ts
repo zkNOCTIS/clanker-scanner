@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
+import { Redis } from "@upstash/redis";
 
-// Simple in-memory cache for tokens
-// In production, consider using Vercel KV or Redis
-const tokenCache: any[] = [];
-const MAX_CACHE_SIZE = 100;
+// Initialize Upstash Redis client
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL!,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+});
 
-// Secret for webhook authentication
+const REDIS_KEY = "clanker:tokens";
+const MAX_TOKENS = 100;
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'your-secret-key';
 
 // POST endpoint - receives tokens from Railway listener
@@ -35,19 +38,25 @@ export async function POST(req: Request) {
       tokenData.received_at = new Date().toISOString();
     }
 
-    // Add to cache (newest first)
-    tokenCache.unshift(tokenData);
+    // Get existing tokens from Redis
+    const existingTokens = await redis.get<any[]>(REDIS_KEY) || [];
 
-    // Trim cache to max size
-    if (tokenCache.length > MAX_CACHE_SIZE) {
-      tokenCache.length = MAX_CACHE_SIZE;
+    // Add new token to the beginning
+    const updatedTokens = [tokenData, ...existingTokens];
+
+    // Trim to max size
+    if (updatedTokens.length > MAX_TOKENS) {
+      updatedTokens.length = MAX_TOKENS;
     }
 
-    console.log(`✅ Token cached. Cache size: ${tokenCache.length}`);
+    // Save back to Redis
+    await redis.set(REDIS_KEY, updatedTokens);
+
+    console.log(`✅ Token cached in Redis. Total: ${updatedTokens.length}`);
 
     return NextResponse.json({
       success: true,
-      cached: tokenCache.length
+      cached: updatedTokens.length
     });
 
   } catch (error) {
@@ -65,10 +74,13 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const limit = parseInt(searchParams.get('limit') || '50');
 
-    // Return cached tokens
+    // Get tokens from Redis
+    const tokens = await redis.get<any[]>(REDIS_KEY) || [];
+
+    // Return limited tokens
     return NextResponse.json({
-      data: tokenCache.slice(0, limit),
-      count: tokenCache.length,
+      data: tokens.slice(0, limit),
+      count: tokens.length,
       timestamp: new Date().toISOString()
     });
 

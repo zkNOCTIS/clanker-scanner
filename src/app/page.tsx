@@ -11,12 +11,30 @@ export default function Home() {
   const [mcaps, setMcaps] = useState<Record<string, number>>({});
   const seenRef = useRef<Set<string>>(new Set());
   const deletedRef = useRef<Set<string>>(new Set());
+  const [, setTick] = useState(0);
+  const [searchCA, setSearchCA] = useState("");
 
   // Remove token when tweet is detected as deleted
   const handleTweetDeleted = (contractAddress: string) => {
     deletedRef.current.add(contractAddress);
     setTokens((prev) => prev.filter((t) => t.contract_address !== contractAddress));
   };
+
+  // Search for token by contract address
+  const handleSearch = () => {
+    if (!searchCA.trim()) return;
+    const normalized = searchCA.toLowerCase().trim();
+    const found = tokens.find(t => t.contract_address.toLowerCase() === normalized);
+    if (found) {
+      document.getElementById(`token-${found.contract_address}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  };
+
+  // Update timestamp display in Recent sidebar every 10 seconds
+  useEffect(() => {
+    const interval = setInterval(() => setTick(t => t + 1), 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Fetch mcaps for sidebar
   useEffect(() => {
@@ -93,12 +111,22 @@ export default function Home() {
             >
               {scanning ? "● LIVE" : "○ PAUSED"}
             </button>
-            <button
-              onClick={() => setTokens([])}
-              className="px-3 py-1 font-mono text-sm border border-[#00d9ff]/50 text-[#00d9ff] hover:bg-[#00d9ff]/10"
-            >
-              CLR [{tokens.length}]
-            </button>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={searchCA}
+                onChange={(e) => setSearchCA(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                placeholder="Search CA..."
+                className="px-3 py-1 font-mono text-sm bg-[#161b22] border border-[#30363d] text-[#00d9ff] placeholder-gray-500 focus:outline-none focus:border-[#00d9ff] w-48"
+              />
+              <button
+                onClick={handleSearch}
+                className="px-3 py-1 font-mono text-sm border border-[#00d9ff]/50 text-[#00d9ff] hover:bg-[#00d9ff]/10"
+              >
+                FIND
+              </button>
+            </div>
           </div>
         </div>
       </header>

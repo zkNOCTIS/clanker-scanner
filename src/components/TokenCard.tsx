@@ -28,6 +28,11 @@ export function TokenCard({ token, isLatest, onTweetDeleted }: { token: ClankerT
   const [mcap, setMcap] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
   const [, setTick] = useState(0);
+  const [twitterStats, setTwitterStats] = useState<{
+    replied_to_username: string;
+    smart_followers: number;
+    smart_followers_text: string;
+  } | null>(token.twitter_stats || null);
 
   // Update timestamp every 10 seconds
   useEffect(() => {
@@ -64,6 +69,45 @@ export function TokenCard({ token, isLatest, onTweetDeleted }: { token: ClankerT
     return () => clearInterval(interval);
   }, [token.contract_address]);
 
+  // Extract replied-to username from tweet URL and fetch stats
+  useEffect(() => {
+    if (!tweetUrl || twitterStats) return; // Skip if no tweet URL or already have stats
+
+    const extractAndFetchStats = async () => {
+      try {
+        // Use API to extract the replied-to user from tweet
+        const res = await fetch(`/api/extract-reply-to?url=${encodeURIComponent(tweetUrl)}`);
+        const data = await res.json();
+
+        if (data.replied_to_username) {
+          // Fetch smart followers for this user
+          const statsRes = await fetch(`/api/twitter-stats/${data.replied_to_username}`);
+          const statsData = await statsRes.json();
+
+          if (statsData.smart_followers !== undefined && statsData.smart_followers !== null) {
+            const formatCount = (count: number) => {
+              if (count >= 1000000) return (count / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+              if (count >= 1000) return (count / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+              return count.toString();
+            };
+
+            setTwitterStats({
+              replied_to_username: data.replied_to_username,
+              smart_followers: statsData.smart_followers,
+              smart_followers_text: formatCount(statsData.smart_followers)
+            });
+          }
+        }
+      } catch (e) {
+        console.log('Failed to fetch Twitter stats:', e);
+      }
+    };
+
+    // Fetch stats after component mounts
+    const timeout = setTimeout(extractAndFetchStats, 1000);
+    return () => clearTimeout(timeout);
+  }, [tweetUrl, twitterStats]);
+
   const copyCA = () => {
     navigator.clipboard.writeText(token.contract_address);
     setCopied(true);
@@ -94,32 +138,32 @@ export function TokenCard({ token, isLatest, onTweetDeleted }: { token: ClankerT
               {platform === "FARCASTER" && (
                 <span className="text-purple-400 font-mono text-sm">FC</span>
               )}
-              {token.twitter_stats && (
+              {twitterStats && (
                 <a
-                  href={`https://x.com/${token.twitter_stats.replied_to_username}`}
+                  href={`https://x.com/${twitterStats.replied_to_username}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-1 px-2 py-0.5 bg-blue-500/10 border border-blue-500/30 rounded text-blue-400 font-mono text-xs hover:bg-blue-500/20 transition-colors"
-                  title={`Replied to @${token.twitter_stats.replied_to_username}`}
+                  title={`Replied to @${twitterStats.replied_to_username}`}
                 >
                   <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                   </svg>
-                  {token.twitter_stats.replied_to_followers_text} followers
+                  {twitterStats.smart_followers_text} followers
                 </a>
               )}
             </div>
             <h2 className="text-2xl font-mono font-bold text-[#00d9ff] truncate">{token.name}</h2>
             <p className="text-lg font-mono text-[#00ff88]">${token.symbol}</p>
-            {token.twitter_stats && (
+            {twitterStats && (
               <p className="text-sm font-mono text-blue-400 mt-1">
                 Reply to <a
-                  href={`https://x.com/${token.twitter_stats.replied_to_username}`}
+                  href={`https://x.com/${twitterStats.replied_to_username}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="hover:underline"
                 >
-                  @{token.twitter_stats.replied_to_username}
+                  @{twitterStats.replied_to_username}
                 </a>
               </p>
             )}

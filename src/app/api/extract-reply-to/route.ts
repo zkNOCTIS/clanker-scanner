@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 
+// Cache responses for 5 minutes to reduce API calls
+export const revalidate = 300;
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const tweetUrl = searchParams.get('url');

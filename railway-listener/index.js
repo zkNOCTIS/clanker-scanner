@@ -11,6 +11,7 @@ const WSS_URLS = [
 const CLANKER_FACTORY = process.env.CLANKER_FACTORY; // Clanker factory contract address
 const WEBHOOK_URL = process.env.WEBHOOK_URL; // Your Vercel webhook URL
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'your-secret-key';
+const NEYNAR_API_KEY = process.env.NEYNAR_API_KEY; // Neynar API for Farcaster verification
 
 // Whitelist of legitimate deployer addresses (lowercase)
 const WHITELISTED_DEPLOYERS = new Set([
@@ -142,6 +143,59 @@ async function parseTransactionData(txHash) {
   }
 }
 
+async function checkFarcasterUserHasX(fid) {
+  if (!NEYNAR_API_KEY || NEYNAR_API_KEY === 'your_neynar_api_key_here') {
+    console.log('⚠️  Neynar API key not configured, skipping Farcaster verification');
+    return false;
+  }
+
+  try {
+    console.log(`Checking Farcaster FID ${fid} for linked X account...`);
+
+    // Neynar API v2 endpoint for user details
+    const response = await fetch(`https://api.neynar.com/v2/farcaster/user/bulk?fids=${fid}`, {
+      headers: {
+        'accept': 'application/json',
+        'api_key': NEYNAR_API_KEY
+      }
+    });
+
+    if (!response.ok) {
+      console.error(`Neynar API error: ${response.status}`);
+      return false;
+    }
+
+    const data = await response.json();
+
+    if (!data.users || data.users.length === 0) {
+      console.log(`Farcaster user ${fid} not found`);
+      return false;
+    }
+
+    const user = data.users[0];
+
+    // Check if user has verified X account
+    const hasVerifiedX = user.verified_addresses?.eth_addresses?.length > 0 ||
+                        (user.verifications && user.verifications.length > 0);
+
+    // Check if user profile contains X/Twitter username
+    const hasXUsername = user.username &&
+                        (user.profile?.bio?.twitter_username ||
+                         user.viewer_context?.following);
+
+    if (hasVerifiedX || hasXUsername) {
+      console.log(`✅ Farcaster user ${fid} (@${user.username}) has linked X account`);
+      return true;
+    }
+
+    console.log(`❌ Farcaster user ${fid} (@${user.username}) has NO linked X account`);
+    return false;
+  } catch (error) {
+    console.error('Error checking Farcaster user:', error.message);
+    return false;
+  }
+}
+
 async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
   console.log('\n🚀 NEW TOKEN DETECTED!');
   console.log(`Address: ${tokenAddress}`);
@@ -150,11 +204,11 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
   console.log(`Tx: ${txHash}`);
   console.log(`Block: ${event.blockNumber}`);
 
-  // Parse transaction data to get tweet URL and deployer address
+  // Parse transaction data to get social context and deployer address
   const txData = await parseTransactionData(txHash);
 
-  if (!txData || !txData.tweetUrl) {
-    console.log('⚠️  Could not extract tweet URL from transaction, skipping');
+  if (!txData) {
+    console.log('⚠️  Could not parse transaction data, skipping');
     return;
   }
 
@@ -164,10 +218,35 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
     return;
   }
 
-  console.log(`✅ Found VERIFIED deploy from whitelisted deployer: ${txData.deployer}`);
-  console.log(`   Tweet: ${txData.tweetUrl}`);
-  console.log(`   Image: ${txData.imageUrl || 'N/A'}`);
-  console.log(`   Interface: ${txData.interface || 'N/A'}`);
+  console.log(`✅ Found deploy from whitelisted deployer: ${txData.deployer}`);
+
+  // Determine platform: Twitter or Farcaster
+  const hasTwitter = !!txData.tweetUrl;
+  const hasFarcasterFid = !!txData.id && /^\d+$/.test(txData.id); // FID is numeric
+
+  if (hasTwitter) {
+    // Twitter/X deploy - proceed immediately
+    console.log(`   Platform: X/Twitter`);
+    console.log(`   Tweet: ${txData.tweetUrl}`);
+    console.log(`   Image: ${txData.imageUrl || 'N/A'}`);
+  } else if (hasFarcasterFid) {
+    // Farcaster deploy - verify X account linkage
+    console.log(`   Platform: Farcaster`);
+    console.log(`   FID: ${txData.id}`);
+    console.log(`   Cast: ${txData.messageId || 'N/A'}`);
+
+    const hasLinkedX = await checkFarcasterUserHasX(txData.id);
+
+    if (!hasLinkedX) {
+      console.log('⚠️  Farcaster user has NO linked X account, skipping');
+      return;
+    }
+
+    console.log('✅ Farcaster user has linked X account - proceeding');
+  } else {
+    console.log('⚠️  No Twitter URL or Farcaster FID found, skipping');
+    return;
+  }
 
   // Build token data object matching Clanker API format
   const tokenData = {
@@ -179,18 +258,18 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
     tx_hash: txHash,
     created_at: new Date().toISOString(),
     creator_address: null,
-    twitter_link: txData.tweetUrl,
-    farcaster_link: null,
+    twitter_link: hasTwitter ? txData.tweetUrl : null,
+    farcaster_link: hasFarcasterFid ? txData.messageId : null,
     website_link: null,
     telegram_link: null,
     discord_link: null,
-    // Include social_context for verification
-    social_context: txData.interface ? {
-      interface: txData.interface,
-      platform: txData.platform || 'X',
-      messageId: txData.messageId || txData.tweetUrl,
+    // Include social_context for both Twitter and Farcaster
+    social_context: {
+      interface: txData.interface || (hasTwitter ? 'twitter' : 'farcaster'),
+      platform: hasTwitter ? 'X' : 'farcaster',
+      messageId: txData.messageId || txData.tweetUrl || '',
       id: txData.id || ''
-    } : undefined
+    }
   };
 
   // Post to webhook immediately

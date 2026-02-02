@@ -186,51 +186,36 @@ async function startListener() {
       console.log('\n🚀 NEW EVENT DETECTED!');
       console.log('Block:', log.blockNumber);
       console.log('Tx:', log.transactionHash);
-      console.log('Topics:', log.topics);
-      console.log('Data:', log.data.substring(0, 100));
 
       try {
-        console.log('Attempting to decode event...');
+        // Extract token address from topics (first indexed parameter)
+        if (log.topics.length >= 2) {
+          const tokenAddress = '0x' + log.topics[1].slice(26); // Remove padding
+          console.log('Token address:', tokenAddress);
 
-        // Decode the event using the ABI
-        const parsedLog = contract.interface.parseLog({
-          topics: log.topics,
-          data: log.data
-        });
+          // Call the token contract to get name and symbol
+          const tokenContract = new ethers.Contract(
+            tokenAddress,
+            ['function name() view returns (string)', 'function symbol() view returns (string)'],
+            provider
+          );
 
-        console.log('Successfully decoded!');
-        console.log('parsedLog type:', typeof parsedLog);
-        console.log('parsedLog:', JSON.stringify(parsedLog, null, 2));
+          console.log('Fetching token name and symbol...');
+          const [name, symbol] = await Promise.all([
+            tokenContract.name(),
+            tokenContract.symbol()
+          ]);
 
-        if (parsedLog && parsedLog.args) {
-          const tokenAddress = parsedLog.args.token;
-          const name = parsedLog.args.name;
-          const symbol = parsedLog.args.symbol;
-          const creator = parsedLog.args.creator;
-
-          console.log('Decoded event:');
-          console.log('  Token:', tokenAddress);
-          console.log('  Name:', name);
-          console.log('  Symbol:', symbol);
-          console.log('  Creator:', creator);
+          console.log('Token name:', name);
+          console.log('Token symbol:', symbol);
 
           // Parse transaction data directly from blockchain
           handleTokenCreated(tokenAddress, name, symbol, log.transactionHash, { blockNumber: log.blockNumber });
         } else {
-          console.log('parsedLog is null/undefined or missing args');
-          console.log('parsedLog value:', parsedLog);
+          console.log('⚠️  Event has no topics, skipping');
         }
       } catch (error) {
-        console.error('❌ Error decoding event:', error.message);
-        console.error('Full error:', error);
-
-        // Fallback: try to extract just the address
-        console.log('Using fallback extraction...');
-        if (log.topics.length >= 2) {
-          const potentialAddress = '0x' + log.topics[1].slice(26);
-          console.log('Extracted address:', potentialAddress);
-          handleTokenCreated(potentialAddress, '', '', log.transactionHash, { blockNumber: log.blockNumber });
-        }
+        console.error('❌ Error processing event:', error.message);
       }
     });
 

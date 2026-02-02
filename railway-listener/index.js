@@ -186,13 +186,19 @@ async function startListener() {
       console.log('\n🚀 NEW EVENT DETECTED!');
       console.log('Block:', log.blockNumber);
       console.log('Tx:', log.transactionHash);
+      console.log('Topics:', log.topics);
+      console.log('Data:', log.data.substring(0, 100));
 
       try {
+        console.log('Attempting to decode event...');
+
         // Decode the event using the ABI
         const parsedLog = contract.interface.parseLog({
           topics: log.topics,
           data: log.data
         });
+
+        console.log('Successfully decoded!');
 
         if (parsedLog) {
           const tokenAddress = parsedLog.args.token;
@@ -208,13 +214,18 @@ async function startListener() {
 
           // Parse transaction data directly from blockchain
           handleTokenCreated(tokenAddress, name, symbol, log.transactionHash, { blockNumber: log.blockNumber });
+        } else {
+          console.log('parsedLog is null/undefined');
         }
       } catch (error) {
-        console.error('Error decoding event:', error.message);
+        console.error('❌ Error decoding event:', error.message);
+        console.error('Full error:', error);
 
         // Fallback: try to extract just the address
+        console.log('Using fallback extraction...');
         if (log.topics.length >= 2) {
           const potentialAddress = '0x' + log.topics[1].slice(26);
+          console.log('Extracted address:', potentialAddress);
           handleTokenCreated(potentialAddress, '', '', log.transactionHash, { blockNumber: log.blockNumber });
         }
       }

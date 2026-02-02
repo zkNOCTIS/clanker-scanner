@@ -12,6 +12,12 @@ const CLANKER_FACTORY = process.env.CLANKER_FACTORY; // Clanker factory contract
 const WEBHOOK_URL = process.env.WEBHOOK_URL; // Your Vercel webhook URL
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'your-secret-key';
 
+// Whitelist of legitimate deployer addresses (lowercase)
+const WHITELISTED_DEPLOYERS = new Set([
+  '0x2112b8456ac07c15fa31ddf3bf713e77716ff3f9',
+  '0xd9acd656a5f1b519c9e76a2a6092265a74186e58'
+]);
+
 let currentUrlIndex = 0; // Track which RPC we're using
 
 // Clanker API for fetching social context
@@ -86,6 +92,9 @@ async function parseTransactionData(txHash) {
       return null;
     }
 
+    // Get deployer address for whitelist verification
+    const deployer = tx.from?.toLowerCase() || null;
+
     // Decode the input data - looking for JSON strings in the hex data
     const hexData = tx.data;
 
@@ -123,7 +132,9 @@ async function parseTransactionData(txHash) {
       interface: interfaceMatch ? interfaceMatch[1] : null,
       platform: platformMatch ? platformMatch[1] : null,
       messageId: messageIdMatch ? messageIdMatch[1] : null,
-      id: idMatch ? idMatch[1] : null
+      id: idMatch ? idMatch[1] : null,
+      // Deployer address for whitelist verification
+      deployer: deployer
     };
   } catch (error) {
     console.error('Error parsing transaction data:', error.message);
@@ -139,7 +150,7 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
   console.log(`Tx: ${txHash}`);
   console.log(`Block: ${event.blockNumber}`);
 
-  // Parse transaction data to get tweet URL and social context
+  // Parse transaction data to get tweet URL and deployer address
   const txData = await parseTransactionData(txHash);
 
   if (!txData || !txData.tweetUrl) {
@@ -147,15 +158,16 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
     return;
   }
 
-  // Check if it's a legitimate Bankr/Clanker reply deploy
-  if (!txData.interface || (txData.interface !== 'Bankr' && txData.interface !== 'Clanker')) {
-    console.log(`⚠️  Not a Bankr/Clanker reply deploy (interface: ${txData.interface || 'none'}), skipping scam`);
+  // Check if deployer is whitelisted
+  if (!txData.deployer || !WHITELISTED_DEPLOYERS.has(txData.deployer)) {
+    console.log(`⚠️  Deployer ${txData.deployer || 'unknown'} not whitelisted, skipping scam`);
     return;
   }
 
-  console.log(`✅ Found VERIFIED ${txData.interface} deploy: ${txData.tweetUrl}`);
+  console.log(`✅ Found VERIFIED deploy from whitelisted deployer: ${txData.deployer}`);
+  console.log(`   Tweet: ${txData.tweetUrl}`);
   console.log(`   Image: ${txData.imageUrl || 'N/A'}`);
-  console.log(`   Interface: ${txData.interface}`);
+  console.log(`   Interface: ${txData.interface || 'N/A'}`);
 
   // Build token data object matching Clanker API format
   const tokenData = {

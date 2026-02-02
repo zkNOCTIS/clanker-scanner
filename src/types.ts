@@ -1,0 +1,160 @@
+export interface ClankerToken {
+  id: number;
+  name: string;
+  symbol: string;
+  contract_address: string;
+  requestor_fid: number;
+  admin: string;
+  cast_hash: string;
+  tx_hash: string;
+  type: string;
+  description: string;
+  img_url?: string;
+  social_context?: {
+    interface: string;
+    platform: string;
+    messageId: string;
+    id: string;
+  };
+  socialLinks?: Array<{
+    name: string;
+    link: string;
+  }>;
+  metadata?: {
+    socialMediaUrls?: Array<{
+      url: string;
+      platform: string;
+    }>;
+    description?: string;
+  };
+  extensions: {
+    fees: {
+      recipients: Array<{
+        bps: number;
+        recipient: string;
+        admin: string;
+      }>;
+    };
+  };
+  starting_market_cap: number;
+  created_at: string;
+  msg_sender?: string;
+  tags?: {
+    verified?: boolean;
+    champagne?: boolean;
+  };
+}
+
+export function getTwitterUsername(url: string): string | null {
+  const match = url.match(/(?:twitter\.com|x\.com)\/([a-zA-Z0-9_]+)/);
+  const username = match ? match[1] : null;
+  const internal = ["i", "intent", "share", "search", "hashtag", "home", "explore", "notifications", "messages", "settings"];
+  if (username && internal.includes(username.toLowerCase())) return null;
+  return username;
+}
+
+export function getTweetId(url: string): string | null {
+  // Try to extract from URL with /status/
+  const match = url.match(/status\/(\d+)/);
+  if (match) return match[1];
+
+  // If it's just a number (tweet ID directly), return it
+  if (/^\d{10,}$/.test(url)) return url;
+
+  return null;
+}
+
+export function getTweetUrl(token: ClankerToken): string | null {
+  const messageId = token.social_context?.messageId || "";
+  if (messageId.includes("twitter.com") || messageId.includes("x.com")) {
+    return messageId;
+  }
+
+  // Try to construct from ID
+  const id = token.social_context?.id;
+  if (id && /^\d{10,}$/.test(id)) {
+    const username = getTwitterUsername(messageId);
+    if (username) return `https://x.com/${username}/status/${id}`;
+  }
+
+  // Check socialLinks for X/Twitter URL
+  const socialLinks = token.socialLinks || [];
+  const xLink = socialLinks.find(l => l.name === "x" && l.link);
+  if (xLink?.link && (xLink.link.includes("twitter.com") || xLink.link.includes("x.com"))) {
+    return xLink.link;
+  }
+
+  // Check metadata socialMediaUrls
+  const socialUrls = token.metadata?.socialMediaUrls || [];
+  const twitterUrl = socialUrls.find(u => u.platform === "twitter" || u.platform === "x");
+  if (twitterUrl?.url) {
+    return twitterUrl.url;
+  }
+
+  return null;
+}
+
+export function getCastUrl(token: ClankerToken): string | null {
+  const castHash = token.cast_hash;
+  if (castHash && castHash.startsWith("0x")) {
+    return `https://warpcast.com/~/conversations/${castHash}`;
+  }
+  return null;
+}
+
+// Blocklisted Twitter usernames (spammers who delete tweets)
+const BLOCKED_USERNAMES: string[] = [
+  "dront08",
+  "donibas27",
+  "botak1118",
+  "b0bbythakkar",
+];
+
+export function hasRealSocialContext(token: ClankerToken): boolean {
+  const castHash = token.cast_hash || "";
+
+  // Block tokens with moltx.io links (spam platform)
+  const socialLinks = token.socialLinks || [];
+  const hasMoltx = socialLinks.some(l =>
+    l.link?.toLowerCase().includes('moltx.io')
+  );
+  if (hasMoltx) return false;
+
+  // Check if deployer is blocklisted
+  const msgId = token.social_context?.messageId || "";
+  const username = getTwitterUsername(msgId);
+  if (username && BLOCKED_USERNAMES.includes(username.toLowerCase())) {
+    return false;
+  }
+
+  // For X/Twitter - must have extractable tweet ID for embedding
+  const tweetUrl = getTweetUrl(token);
+  if (tweetUrl) {
+    // Also check username from tweet URL
+    const urlUsername = getTwitterUsername(tweetUrl);
+    if (urlUsername && BLOCKED_USERNAMES.includes(urlUsername.toLowerCase())) {
+      return false;
+    }
+    const tweetId = getTweetId(tweetUrl);
+    if (tweetId) return true;
+  }
+
+  // Also check messageId and social_context.id directly
+  const messageId = token.social_context?.messageId || "";
+  const socialId = token.social_context?.id || "";
+  if (getTweetId(messageId) || getTweetId(socialId)) return true;
+
+  // REMOVED: Farcaster-only check (was: if castHash exists return true)
+  // Now only Farcaster tokens with additional social links will pass below
+
+  // Tokens with 2+ UNIQUE social links (different URLs)
+  // Filters out scams where all links point to same URL
+  const allSocialLinks = token.socialLinks || [];
+  const validLinks = allSocialLinks.filter(l => l.link && l.link.length > 0);
+
+  // Check we have 2+ different URLs (not all same link)
+  const uniqueUrls = new Set(validLinks.map(l => l.link));
+  if (uniqueUrls.size >= 2) return true;
+
+  return false;
+}

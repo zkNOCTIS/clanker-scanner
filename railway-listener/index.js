@@ -76,35 +76,88 @@ async function postToWebhook(tokenData) {
   }
 }
 
-async function handleTokenCreated(tokenAddress, name, symbol, creator, event) {
+async function parseTransactionData(txHash) {
+  try {
+    console.log(`Fetching transaction data for ${txHash}...`);
+    const tx = await provider.getTransaction(txHash);
+
+    if (!tx || !tx.data) {
+      console.log('No transaction data found');
+      return null;
+    }
+
+    // Decode the input data - looking for JSON strings in the hex data
+    const hexData = tx.data;
+
+    // Convert hex to ASCII and look for JSON patterns
+    let asciiData = '';
+    for (let i = 2; i < hexData.length; i += 2) {
+      const byte = parseInt(hexData.substr(i, 2), 16);
+      if (byte >= 32 && byte <= 126) { // Printable ASCII
+        asciiData += String.fromCharCode(byte);
+      } else {
+        asciiData += ' ';
+      }
+    }
+
+    // Extract tweet URL from context.messageId
+    const tweetMatch = asciiData.match(/https:\/\/twitter\.com\/[^"\s]+\/status\/\d+/);
+    const imageMatch = asciiData.match(/https:\/\/pbs\.twimg\.com\/media\/[^\s"]+/);
+    const nameMatch = asciiData.match(/"name":"([^"]+)"/);
+    const symbolMatch = asciiData.match(/"symbol":"([^"]+)"/);
+    const descMatch = asciiData.match(/"description":"([^"]+)"/);
+
+    return {
+      tweetUrl: tweetMatch ? tweetMatch[0] : null,
+      imageUrl: imageMatch ? imageMatch[0] : null,
+      name: nameMatch ? nameMatch[1] : null,
+      symbol: symbolMatch ? symbolMatch[1] : null,
+      description: descMatch ? descMatch[1] : null
+    };
+  } catch (error) {
+    console.error('Error parsing transaction data:', error.message);
+    return null;
+  }
+}
+
+async function handleTokenCreated(tokenAddress, txHash, event) {
   console.log('\n🚀 NEW TOKEN DETECTED!');
   console.log(`Address: ${tokenAddress}`);
-  console.log(`Name: ${name}`);
-  console.log(`Symbol: ${symbol}`);
-  console.log(`Creator: ${creator}`);
+  console.log(`Tx: ${txHash}`);
   console.log(`Block: ${event.blockNumber}`);
 
-  // Try to fetch full token data from Clanker API with retries
-  let tokenData = null;
-  let attempts = 0;
-  const maxAttempts = 5;
+  // Parse transaction data to get tweet URL and metadata
+  const txData = await parseTransactionData(txHash);
 
-  while (!tokenData && attempts < maxAttempts) {
-    tokenData = await fetchTokenDataFromClanker(tokenAddress);
-
-    if (!tokenData) {
-      attempts++;
-      console.log(`Retry ${attempts}/${maxAttempts} in 2 seconds...`);
-      await new Promise(resolve => setTimeout(resolve, 2000));
-    }
+  if (!txData || !txData.tweetUrl) {
+    console.log('⚠️  Could not extract tweet URL from transaction, skipping');
+    return;
   }
 
-  if (tokenData) {
-    // Post complete token data to webhook
-    await postToWebhook(tokenData);
-  } else {
-    console.log(`⚠️  Could not fetch complete data for ${tokenAddress}, skipping`);
-  }
+  console.log(`✅ Found tweet: ${txData.tweetUrl}`);
+  console.log(`   Name: ${txData.name || 'N/A'}`);
+  console.log(`   Symbol: ${txData.symbol || 'N/A'}`);
+  console.log(`   Image: ${txData.imageUrl || 'N/A'}`);
+
+  // Build token data object matching Clanker API format
+  const tokenData = {
+    contract_address: tokenAddress,
+    name: txData.name,
+    symbol: txData.symbol,
+    image_url: txData.imageUrl,
+    description: txData.description || '',
+    tx_hash: txHash,
+    created_at: new Date().toISOString(),
+    creator_address: null, // We could parse this from logs if needed
+    twitter_link: txData.tweetUrl,
+    farcaster_link: null,
+    website_link: null,
+    telegram_link: null,
+    discord_link: null
+  };
+
+  // Post to webhook immediately
+  await postToWebhook(tokenData);
 }
 
 async function startListener() {
@@ -131,15 +184,14 @@ async function startListener() {
       console.log('Block:', log.blockNumber);
       console.log('Tx:', log.transactionHash);
       console.log('Topics:', log.topics);
-      console.log('Data preview:', log.data.substring(0, 100) + '...');
 
       // Try to extract token address from topics (usually topics[1] or topics[2])
       if (log.topics.length >= 2) {
         const potentialAddress = '0x' + log.topics[1].slice(26); // Remove padding
         console.log('Potential token address:', potentialAddress);
 
-        // Fetch from Clanker API
-        handleTokenCreated(potentialAddress, '', '', '', { blockNumber: log.blockNumber });
+        // Parse transaction data directly from blockchain
+        handleTokenCreated(potentialAddress, log.transactionHash, { blockNumber: log.blockNumber });
       }
     });
 

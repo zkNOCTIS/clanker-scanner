@@ -30,8 +30,8 @@ export function TokenCard({ token, isLatest, onTweetDeleted }: { token: ClankerT
   const [, setTick] = useState(0);
   const [twitterStats, setTwitterStats] = useState<{
     replied_to_username: string;
-    smart_followers: number;
-    smart_followers_text: string;
+    replied_to_followers: number;
+    replied_to_followers_text: string;
   } | null>(token.twitter_stats || null);
 
   // Update timestamp every 10 seconds
@@ -93,8 +93,8 @@ export function TokenCard({ token, isLatest, onTweetDeleted }: { token: ClankerT
 
             setTwitterStats({
               replied_to_username: data.replied_to_username,
-              smart_followers: statsData.smart_followers,
-              smart_followers_text: formatCount(statsData.smart_followers)
+              replied_to_followers: statsData.smart_followers,
+              replied_to_followers_text: formatCount(statsData.smart_followers)
             });
           }
         }
@@ -149,7 +149,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted }: { token: ClankerT
                   <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                   </svg>
-                  {twitterStats.smart_followers_text} followers
+                  {twitterStats.replied_to_followers_text} followers
                 </a>
               )}
             </div>

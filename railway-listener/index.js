@@ -120,13 +120,15 @@ async function parseTransactionData(txHash) {
   }
 }
 
-async function handleTokenCreated(tokenAddress, txHash, event) {
+async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
   console.log('\n🚀 NEW TOKEN DETECTED!');
   console.log(`Address: ${tokenAddress}`);
+  console.log(`Name: ${name}`);
+  console.log(`Symbol: ${symbol}`);
   console.log(`Tx: ${txHash}`);
   console.log(`Block: ${event.blockNumber}`);
 
-  // Parse transaction data to get tweet URL and metadata
+  // Parse transaction data to get tweet URL and image
   const txData = await parseTransactionData(txHash);
 
   if (!txData || !txData.tweetUrl) {
@@ -135,20 +137,18 @@ async function handleTokenCreated(tokenAddress, txHash, event) {
   }
 
   console.log(`✅ Found tweet: ${txData.tweetUrl}`);
-  console.log(`   Name: ${txData.name || 'N/A'}`);
-  console.log(`   Symbol: ${txData.symbol || 'N/A'}`);
   console.log(`   Image: ${txData.imageUrl || 'N/A'}`);
 
   // Build token data object matching Clanker API format
   const tokenData = {
     contract_address: tokenAddress,
-    name: txData.name,
-    symbol: txData.symbol,
+    name: name,
+    symbol: symbol,
     image_url: txData.imageUrl,
     description: txData.description || '',
     tx_hash: txHash,
     created_at: new Date().toISOString(),
-    creator_address: null, // We could parse this from logs if needed
+    creator_address: null,
     twitter_link: txData.tweetUrl,
     farcaster_link: null,
     website_link: null,
@@ -179,19 +179,44 @@ async function startListener() {
       address: CLANKER_FACTORY
     };
 
+    // Create contract interface to decode events
+    contract = new ethers.Contract(CLANKER_FACTORY, FACTORY_ABI, provider);
+
     provider.on(filter, async (log) => {
       console.log('\n🚀 NEW EVENT DETECTED!');
       console.log('Block:', log.blockNumber);
       console.log('Tx:', log.transactionHash);
-      console.log('Topics:', log.topics);
 
-      // Try to extract token address from topics (usually topics[1] or topics[2])
-      if (log.topics.length >= 2) {
-        const potentialAddress = '0x' + log.topics[1].slice(26); // Remove padding
-        console.log('Potential token address:', potentialAddress);
+      try {
+        // Decode the event using the ABI
+        const parsedLog = contract.interface.parseLog({
+          topics: log.topics,
+          data: log.data
+        });
 
-        // Parse transaction data directly from blockchain
-        handleTokenCreated(potentialAddress, log.transactionHash, { blockNumber: log.blockNumber });
+        if (parsedLog) {
+          const tokenAddress = parsedLog.args.token;
+          const name = parsedLog.args.name;
+          const symbol = parsedLog.args.symbol;
+          const creator = parsedLog.args.creator;
+
+          console.log('Decoded event:');
+          console.log('  Token:', tokenAddress);
+          console.log('  Name:', name);
+          console.log('  Symbol:', symbol);
+          console.log('  Creator:', creator);
+
+          // Parse transaction data directly from blockchain
+          handleTokenCreated(tokenAddress, name, symbol, log.transactionHash, { blockNumber: log.blockNumber });
+        }
+      } catch (error) {
+        console.error('Error decoding event:', error.message);
+
+        // Fallback: try to extract just the address
+        if (log.topics.length >= 2) {
+          const potentialAddress = '0x' + log.topics[1].slice(26);
+          handleTokenCreated(potentialAddress, '', '', log.transactionHash, { blockNumber: log.blockNumber });
+        }
       }
     });
 

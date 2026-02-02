@@ -199,8 +199,10 @@ async function startListener() {
         });
 
         console.log('Successfully decoded!');
+        console.log('parsedLog type:', typeof parsedLog);
+        console.log('parsedLog:', JSON.stringify(parsedLog, null, 2));
 
-        if (parsedLog) {
+        if (parsedLog && parsedLog.args) {
           const tokenAddress = parsedLog.args.token;
           const name = parsedLog.args.name;
           const symbol = parsedLog.args.symbol;
@@ -215,7 +217,8 @@ async function startListener() {
           // Parse transaction data directly from blockchain
           handleTokenCreated(tokenAddress, name, symbol, log.transactionHash, { blockNumber: log.blockNumber });
         } else {
-          console.log('parsedLog is null/undefined');
+          console.log('parsedLog is null/undefined or missing args');
+          console.log('parsedLog value:', parsedLog);
         }
       } catch (error) {
         console.error('❌ Error decoding event:', error.message);

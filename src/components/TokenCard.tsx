@@ -141,36 +141,36 @@ export function TokenCard({ token, isLatest, onTweetDeleted }: { token: ClankerT
             </div>
             <h2 className="text-2xl font-mono font-bold text-[#00d9ff] truncate">{token.name}</h2>
             <p className="text-lg font-mono text-[#00ff88]">${token.symbol}</p>
-            {twitterStats && (
+          </div>
+
+          {/* Right side - Twitter stats or Mcap badge */}
+          <div className="flex-shrink-0">
+            {twitterStats ? (
               <a
                 href={`https://x.com/${twitterStats.replied_to_username}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-3 flex flex-col items-center gap-2 px-6 py-4 bg-blue-500/10 border-2 border-blue-500/30 rounded-lg hover:bg-blue-500/20 hover:border-blue-500/50 transition-all"
+                className="flex flex-col items-center justify-center gap-2 px-6 py-4 bg-blue-500/10 border-2 border-blue-500/30 rounded-lg hover:bg-blue-500/20 hover:border-blue-500/50 transition-all min-w-[200px]"
               >
                 <div className="flex items-center gap-2">
                   <svg className="w-5 h-5 text-blue-400" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                   </svg>
                   <span className="text-xl font-mono font-bold text-blue-400">
-                    {twitterStats.replied_to_followers_text} Smart Followers
+                    {twitterStats.replied_to_followers_text}
                   </span>
                 </div>
-                <p className="text-sm font-mono text-blue-300">
+                <p className="text-xs font-mono text-blue-300">Smart Followers</p>
+                <p className="text-xs font-mono text-blue-300">
                   Reply to @{twitterStats.replied_to_username}
                 </p>
               </a>
-            )}
-          </div>
-
-          {/* Right side - Mcap badge */}
-          {mcap && (
-            <div className="flex-shrink-0">
+            ) : mcap ? (
               <span className="px-3 py-2 text-lg font-mono font-bold bg-[#00ff88] text-black rounded-sm">
                 {formatMcap(mcap)}
               </span>
-            </div>
-          )}
+            ) : null}
+          </div>
         </div>
 
         {/* CA & Links row */}

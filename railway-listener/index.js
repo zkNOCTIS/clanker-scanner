@@ -100,8 +100,8 @@ async function parseTransactionData(txHash) {
       }
     }
 
-    // Extract tweet URL from context.messageId
-    const tweetMatch = asciiData.match(/https:\/\/twitter\.com\/[^"\s]+\/status\/\d+/);
+    // Extract tweet URL from context.messageId (both twitter.com and x.com)
+    const tweetMatch = asciiData.match(/https:\/\/(twitter\.com|x\.com)\/[^"\s]+\/status\/\d+/);
     const imageMatch = asciiData.match(/https:\/\/pbs\.twimg\.com\/media\/[^\s"]+/);
     const nameMatch = asciiData.match(/"name":"([^"]+)"/);
     const symbolMatch = asciiData.match(/"symbol":"([^"]+)"/);

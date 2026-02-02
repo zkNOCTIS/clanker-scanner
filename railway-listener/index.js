@@ -107,12 +107,23 @@ async function parseTransactionData(txHash) {
     const symbolMatch = asciiData.match(/"symbol":"([^"]+)"/);
     const descMatch = asciiData.match(/"description":"([^"]+)"/);
 
+    // Extract social_context fields (for Bankr verification)
+    const interfaceMatch = asciiData.match(/"interface":"([^"]+)"/);
+    const platformMatch = asciiData.match(/"platform":"([^"]+)"/);
+    const messageIdMatch = asciiData.match(/"messageId":"([^"]+)"/);
+    const idMatch = asciiData.match(/"id":"([^"]+)"/);
+
     return {
       tweetUrl: tweetMatch ? tweetMatch[0] : null,
       imageUrl: imageMatch ? imageMatch[0] : null,
       name: nameMatch ? nameMatch[1] : null,
       symbol: symbolMatch ? symbolMatch[1] : null,
-      description: descMatch ? descMatch[1] : null
+      description: descMatch ? descMatch[1] : null,
+      // Social context for Bankr verification
+      interface: interfaceMatch ? interfaceMatch[1] : null,
+      platform: platformMatch ? platformMatch[1] : null,
+      messageId: messageIdMatch ? messageIdMatch[1] : null,
+      id: idMatch ? idMatch[1] : null
     };
   } catch (error) {
     console.error('Error parsing transaction data:', error.message);
@@ -128,7 +139,7 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
   console.log(`Tx: ${txHash}`);
   console.log(`Block: ${event.blockNumber}`);
 
-  // Parse transaction data to get tweet URL and image
+  // Parse transaction data to get tweet URL and social context
   const txData = await parseTransactionData(txHash);
 
   if (!txData || !txData.tweetUrl) {
@@ -136,8 +147,15 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
     return;
   }
 
-  console.log(`✅ Found tweet: ${txData.tweetUrl}`);
+  // Check if it's a legitimate Bankr/Clanker reply deploy
+  if (!txData.interface || (txData.interface !== 'Bankr' && txData.interface !== 'Clanker')) {
+    console.log(`⚠️  Not a Bankr/Clanker reply deploy (interface: ${txData.interface || 'none'}), skipping scam`);
+    return;
+  }
+
+  console.log(`✅ Found VERIFIED ${txData.interface} deploy: ${txData.tweetUrl}`);
   console.log(`   Image: ${txData.imageUrl || 'N/A'}`);
+  console.log(`   Interface: ${txData.interface}`);
 
   // Build token data object matching Clanker API format
   const tokenData = {
@@ -153,7 +171,14 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
     farcaster_link: null,
     website_link: null,
     telegram_link: null,
-    discord_link: null
+    discord_link: null,
+    // Include social_context for verification
+    social_context: txData.interface ? {
+      interface: txData.interface,
+      platform: txData.platform || 'X',
+      messageId: txData.messageId || txData.tweetUrl,
+      id: txData.id || ''
+    } : undefined
   };
 
   // Post to webhook immediately

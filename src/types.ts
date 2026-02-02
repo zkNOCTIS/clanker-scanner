@@ -1,15 +1,23 @@
 export interface ClankerToken {
-  id: number;
+  id?: number;
   name: string;
   symbol: string;
   contract_address: string;
-  requestor_fid: number;
-  admin: string;
-  cast_hash: string;
+  requestor_fid?: number;
+  admin?: string;
+  cast_hash?: string;
   tx_hash: string;
-  type: string;
-  description: string;
+  type?: string;
+  description?: string;
   img_url?: string;
+  image_url?: string; // Railway format
+  creator_address?: string | null; // Railway format
+  twitter_link?: string | null; // Railway format
+  farcaster_link?: string | null; // Railway format
+  website_link?: string | null; // Railway format
+  telegram_link?: string | null; // Railway format
+  discord_link?: string | null; // Railway format
+  received_at?: string; // Railway format
   social_context?: {
     interface: string;
     platform: string;
@@ -27,7 +35,7 @@ export interface ClankerToken {
     }>;
     description?: string;
   };
-  extensions: {
+  extensions?: {
     fees: {
       recipients: Array<{
         bps: number;
@@ -36,7 +44,7 @@ export interface ClankerToken {
       }>;
     };
   };
-  starting_market_cap: number;
+  starting_market_cap?: number;
   created_at: string;
   msg_sender?: string;
   tags?: {
@@ -65,6 +73,12 @@ export function getTweetId(url: string): string | null {
 }
 
 export function getTweetUrl(token: ClankerToken): string | null {
+  // Check Railway format first (direct field)
+  if (token.twitter_link && (token.twitter_link.includes("twitter.com") || token.twitter_link.includes("x.com"))) {
+    return token.twitter_link;
+  }
+
+  // Check old Clanker API format
   const messageId = token.social_context?.messageId || "";
   if (messageId.includes("twitter.com") || messageId.includes("x.com")) {
     return messageId;
@@ -111,6 +125,20 @@ const BLOCKED_USERNAMES: string[] = [
 ];
 
 export function hasRealSocialContext(token: ClankerToken): boolean {
+  // Railway format - check twitter_link directly
+  if (token.twitter_link) {
+    const tweetUrl = token.twitter_link;
+    const urlUsername = getTwitterUsername(tweetUrl);
+    // Block if username is blocklisted
+    if (urlUsername && BLOCKED_USERNAMES.includes(urlUsername.toLowerCase())) {
+      return false;
+    }
+    // Must have valid tweet ID for embedding
+    const tweetId = getTweetId(tweetUrl);
+    if (tweetId) return true;
+  }
+
+  // Old Clanker API format checks
   const castHash = token.cast_hash || "";
 
   // Block tokens with moltx.io links (spam platform)

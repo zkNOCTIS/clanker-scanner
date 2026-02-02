@@ -35,10 +35,15 @@ export function TokenCard({ token, isLatest, onTweetDeleted }: { token: ClankerT
     return () => clearInterval(interval);
   }, []);
 
-  const platform = token.social_context?.platform?.toUpperCase() || "UNKNOWN";
-  const messageUrl = token.social_context?.messageId || token.cast_hash || "";
   const tweetUrl = getTweetUrl(token);
   const castUrl = getCastUrl(token);
+
+  // Detect platform from Railway format (twitter_link) or old format (social_context.platform)
+  const hasTwitter = !!tweetUrl;
+  const hasFarcaster = !!castUrl;
+  const platform = hasTwitter ? "X" : hasFarcaster ? "FARCASTER" : (token.social_context?.platform?.toUpperCase() || "UNKNOWN");
+
+  const messageUrl = token.social_context?.messageId || token.cast_hash || "";
 
   const tweetId = getTweetId(messageUrl)
     || getTweetId(token.social_context?.id || "")

@@ -12,40 +12,62 @@ export async function GET(req: Request) {
   }
 
   try {
-    // Fetch the tweet page HTML
-    const response = await fetch(tweetUrl, {
+    // Extract tweet ID from URL
+    const tweetIdMatch = tweetUrl.match(/status\/(\d+)/);
+    if (!tweetIdMatch) {
+      return NextResponse.json({ replied_to_username: null });
+    }
+    const tweetId = tweetIdMatch[1];
+
+    // Try Twitter's syndication API (used by embeds)
+    try {
+      const syndicationUrl = `https://cdn.syndication.twimg.com/tweet-result?id=${tweetId}&lang=en&token=1`;
+      const syndicationResponse = await fetch(syndicationUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'application/json'
+        }
+      });
+
+      if (syndicationResponse.ok) {
+        const syndicationData = await syndicationResponse.json();
+
+        // Check for in_reply_to_screen_name in the response
+        if (syndicationData?.in_reply_to_screen_name) {
+          return NextResponse.json({
+            replied_to_username: syndicationData.in_reply_to_screen_name
+          });
+        }
+
+        // Also check parent field
+        if (syndicationData?.parent?.user?.screen_name) {
+          return NextResponse.json({
+            replied_to_username: syndicationData.parent.user.screen_name
+          });
+        }
+      }
+    } catch (e) {
+      console.log('Syndication API failed, trying oEmbed');
+    }
+
+    // Fallback: Try oEmbed API
+    const oembedUrl = `https://publish.twitter.com/oembed?url=${encodeURIComponent(tweetUrl)}&omit_script=true`;
+    const oembedResponse = await fetch(oembedUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
       }
     });
 
-    if (!response.ok) {
-      return NextResponse.json(
-        { error: `Failed to fetch tweet: ${response.status}` },
-        { status: response.status }
-      );
-    }
+    if (oembedResponse.ok) {
+      const oembedData = await oembedResponse.json();
 
-    const html = await response.text();
-
-    // Try multiple patterns to extract replied-to username
-
-    // Pattern 1: Look for "Replying to @username" in meta tags or page content
-    const replyingToMetaMatch = html.match(/"replying_to_status_author_username":"([a-zA-Z0-9_]+)"/);
-    if (replyingToMetaMatch) {
-      return NextResponse.json({ replied_to_username: replyingToMetaMatch[1] });
-    }
-
-    // Pattern 2: Look for in_reply_to_screen_name in page data
-    const inReplyToMatch = html.match(/"in_reply_to_screen_name":"([a-zA-Z0-9_]+)"/);
-    if (inReplyToMatch) {
-      return NextResponse.json({ replied_to_username: inReplyToMatch[1] });
-    }
-
-    // Pattern 3: Look for "Replying to" text with username link
-    const replyingToTextMatch = html.match(/Replying to.*?@([a-zA-Z0-9_]+)/i);
-    if (replyingToTextMatch) {
-      return NextResponse.json({ replied_to_username: replyingToTextMatch[1] });
+      // Extract username from "Replying to @username" in the HTML
+      if (oembedData?.html) {
+        const replyMatch = oembedData.html.match(/Replying to\s+<a[^>]*>@([a-zA-Z0-9_]+)<\/a>/);
+        if (replyMatch) {
+          return NextResponse.json({ replied_to_username: replyMatch[1] });
+        }
+      }
     }
 
     // No reply-to information found

@@ -221,15 +221,30 @@ export function TokenCard({ token, isLatest, onTweetDeleted }: { token: ClankerT
       {/* Farcaster link - always show for FC tokens with cast hash */}
       {castUrl && (
         <div className="border-t border-[#30363d] px-4 py-3">
-          <a
-            href={castUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 text-purple-400 font-mono text-sm hover:bg-purple-400/10 px-2 py-1 rounded transition-colors"
-          >
-            <span className="text-purple-500">FC</span>
-            View Cast on Warpcast →
-          </a>
+          <div className="flex items-center justify-between gap-4">
+            <a
+              href={castUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 text-purple-400 font-mono text-sm hover:bg-purple-400/10 px-2 py-1 rounded transition-colors"
+            >
+              <span className="text-purple-500">FC</span>
+              View Cast on Warpcast →
+            </a>
+            {token.social_context?.xUsername && (
+              <a
+                href={`https://x.com/${token.social_context.xUsername}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-[#00d9ff] font-mono text-sm hover:bg-[#00d9ff]/10 px-2 py-1 rounded transition-colors"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                </svg>
+                @{token.social_context.xUsername}
+              </a>
+            )}
+          </div>
         </div>
       )}
 

@@ -23,6 +23,7 @@ export interface ClankerToken {
     platform: string;
     messageId: string;
     id: string;
+    xUsername?: string | null; // X username for verified Farcaster users
   };
   socialLinks?: Array<{
     name: string;

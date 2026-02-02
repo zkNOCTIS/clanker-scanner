@@ -114,11 +114,6 @@ async function parseTransactionData(txHash) {
       }
     }
 
-    // Log full ASCII data to see what we have
-    console.log('📝 FULL TRANSACTION DATA:');
-    console.log(asciiData);
-    console.log('---END DATA---');
-
     // Extract tweet URL from context.messageId (both twitter.com and x.com)
     const tweetMatch = asciiData.match(/https:\/\/(twitter\.com|x\.com)\/[^"\s]+\/status\/\d+/);
     const imageMatch = asciiData.match(/https:\/\/pbs\.twimg\.com\/media\/[^\s"]+/);
@@ -227,29 +222,22 @@ async function getTwitterStatsFromFrontRunPro(tweetUrl) {
 
     const frontrunData = await frontrunResponse.json();
 
-    // Log the actual response to see structure
-    console.log(`   FrontRunPro response:`, JSON.stringify(frontrunData, null, 2));
+    // FrontRunPro returns smart_followers (quality followers count)
+    const smartFollowers = frontrunData.smart_followers;
 
-    // Prioritize smart_followers (quality followers), then key_followers
-    const followers = frontrunData.smart_followers
-      || (frontrunData.data && frontrunData.data.smart_followers)
-      || frontrunData.key_followers
-      || (frontrunData.data && frontrunData.data.key_followers)
-      || frontrunData.count;
+    if (smartFollowers !== undefined && smartFollowers !== null) {
+      const followersText = formatFollowerCount(smartFollowers);
 
-    if (followers !== undefined && followers !== null) {
-      const followersText = formatFollowerCount(followers);
-
-      console.log(`✅ Got key follower count for @${repliedToUsername}: ${followers} (${followersText})`);
+      console.log(`✅ Got smart followers for @${repliedToUsername}: ${smartFollowers} (${followersText})`);
 
       return {
         replied_to_username: repliedToUsername,
-        replied_to_followers: followers,
+        replied_to_followers: smartFollowers,
         replied_to_followers_text: followersText
       };
     }
 
-    console.log(`   ⚠️  No follower data in FrontRunPro response`);
+    console.log(`   ⚠️  No smart follower data in FrontRunPro response`);
     return null;
 
   } catch (error) {

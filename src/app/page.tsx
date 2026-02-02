@@ -46,17 +46,25 @@ export default function Home() {
 
         const data = await res.json();
         const newTokens: ClankerToken[] = data.data || [];
+        console.log(`[Scanner] Fetched ${newTokens.length} tokens from webhook`);
         setError(null);
 
         const unseen = newTokens.filter(
           (t) => !seenRef.current.has(t.contract_address) && !deletedRef.current.has(t.contract_address) && hasRealSocialContext(t)
         );
+        console.log(`[Scanner] ${unseen.length} tokens passed filter (${newTokens.length - unseen.length} filtered out)`);
+
+        if (newTokens.length > 0 && unseen.length === 0) {
+          console.log('[Scanner] All tokens filtered out! First token:', newTokens[0]);
+          console.log('[Scanner] hasRealSocialContext result:', hasRealSocialContext(newTokens[0]));
+        }
 
         if (unseen.length > 0) {
           unseen.forEach((t) => seenRef.current.add(t.contract_address));
           setTokens((prev) => [...unseen, ...prev].slice(0, 50));
         }
       } catch (e) {
+        console.error('[Scanner] Fetch error:', e);
         setError(`Network error`);
       }
     }

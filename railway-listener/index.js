@@ -227,11 +227,20 @@ async function getTwitterStatsFromFrontRunPro(tweetUrl) {
 
     const frontrunData = await frontrunResponse.json();
 
-    if (frontrunData && frontrunData.followers_count !== undefined) {
-      const followers = frontrunData.followers_count;
+    // Log the actual response to see structure
+    console.log(`   FrontRunPro response:`, JSON.stringify(frontrunData, null, 2));
+
+    // Prioritize smart_followers (quality followers), then key_followers
+    const followers = frontrunData.smart_followers
+      || (frontrunData.data && frontrunData.data.smart_followers)
+      || frontrunData.key_followers
+      || (frontrunData.data && frontrunData.data.key_followers)
+      || frontrunData.count;
+
+    if (followers !== undefined && followers !== null) {
       const followersText = formatFollowerCount(followers);
 
-      console.log(`✅ Got follower count for @${repliedToUsername}: ${followers} (${followersText})`);
+      console.log(`✅ Got key follower count for @${repliedToUsername}: ${followers} (${followersText})`);
 
       return {
         replied_to_username: repliedToUsername,

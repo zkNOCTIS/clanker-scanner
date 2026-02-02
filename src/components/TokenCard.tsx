@@ -94,9 +94,35 @@ export function TokenCard({ token, isLatest, onTweetDeleted }: { token: ClankerT
               {platform === "FARCASTER" && (
                 <span className="text-purple-400 font-mono text-sm">FC</span>
               )}
+              {token.twitter_stats && (
+                <a
+                  href={`https://x.com/${token.twitter_stats.replied_to_username}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 px-2 py-0.5 bg-blue-500/10 border border-blue-500/30 rounded text-blue-400 font-mono text-xs hover:bg-blue-500/20 transition-colors"
+                  title={`Replied to @${token.twitter_stats.replied_to_username}`}
+                >
+                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                  {token.twitter_stats.replied_to_followers_text} followers
+                </a>
+              )}
             </div>
             <h2 className="text-2xl font-mono font-bold text-[#00d9ff] truncate">{token.name}</h2>
             <p className="text-lg font-mono text-[#00ff88]">${token.symbol}</p>
+            {token.twitter_stats && (
+              <p className="text-sm font-mono text-blue-400 mt-1">
+                Reply to <a
+                  href={`https://x.com/${token.twitter_stats.replied_to_username}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:underline"
+                >
+                  @{token.twitter_stats.replied_to_username}
+                </a>
+              </p>
+            )}
           </div>
 
           {/* Right side - Mcap badge */}

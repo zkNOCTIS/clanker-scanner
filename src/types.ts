@@ -25,6 +25,11 @@ export interface ClankerToken {
     id: string;
     xUsername?: string | null; // X username for verified Farcaster users
   };
+  twitter_stats?: {
+    replied_to_username: string;
+    replied_to_followers: number;
+    replied_to_followers_text: string;
+  } | null;
   socialLinks?: Array<{
     name: string;
     link: string;

@@ -21,6 +21,10 @@ const WHITELISTED_DEPLOYERS = new Set([
 
 let currentUrlIndex = 0; // Track which RPC we're using
 
+// FrontRunPro API configuration
+const FRONTRUNPRO_API = 'https://loadbalance.frontrun.pro/api/v1/twitter';
+const FRONTRUNPRO_SESSION_TOKEN = process.env.FRONTRUNPRO_SESSION_TOKEN;
+
 // Clanker API for fetching social context
 const CLANKER_API = 'https://www.clanker.world/api/tokens';
 
@@ -110,6 +114,11 @@ async function parseTransactionData(txHash) {
       }
     }
 
+    // Log full ASCII data to see what we have
+    console.log('📝 FULL TRANSACTION DATA:');
+    console.log(asciiData);
+    console.log('---END DATA---');
+
     // Extract tweet URL from context.messageId (both twitter.com and x.com)
     const tweetMatch = asciiData.match(/https:\/\/(twitter\.com|x\.com)\/[^"\s]+\/status\/\d+/);
     const imageMatch = asciiData.match(/https:\/\/pbs\.twimg\.com\/media\/[^\s"]+/);
@@ -140,6 +149,114 @@ async function parseTransactionData(txHash) {
   } catch (error) {
     console.error('Error parsing transaction data:', error.message);
     return null;
+  }
+}
+
+async function getTwitterStatsFromFrontRunPro(tweetUrl) {
+  if (!FRONTRUNPRO_SESSION_TOKEN) {
+    console.log('⚠️  FrontRunPro session token not configured');
+    return null;
+  }
+
+  try {
+    // Step 1: Get tweet metadata from Twitter oEmbed API to find who it's replying to
+    console.log(`   Fetching tweet metadata from Twitter oEmbed...`);
+    const oembedUrl = `https://publish.twitter.com/oembed?url=${encodeURIComponent(tweetUrl)}&omit_script=true`;
+
+    const oembedResponse = await fetch(oembedUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      },
+      timeout: 10000
+    });
+
+    if (!oembedResponse.ok) {
+      console.log(`   Twitter oEmbed API error: ${oembedResponse.status}`);
+      return null;
+    }
+
+    const oembedData = await oembedResponse.json();
+
+    // The oEmbed HTML contains the reply context
+    // Look for patterns like "Replying to @username" or extract from the author_url
+    const html = oembedData.html || '';
+
+    // Try to extract replied-to username from HTML
+    // Pattern 1: "Replying to @username"
+    let repliedToUsername = null;
+    const replyingToMatch = html.match(/Replying to\s+<a[^>]*>@([a-zA-Z0-9_]+)<\/a>/i);
+    if (replyingToMatch) {
+      repliedToUsername = replyingToMatch[1];
+    }
+
+    // Pattern 2: Look for multiple usernames in blockquote, second one is usually replied-to
+    if (!repliedToUsername) {
+      const usernameMatches = html.match(/@([a-zA-Z0-9_]+)/g);
+      if (usernameMatches && usernameMatches.length >= 2) {
+        // First is deployer, second is usually replied-to
+        repliedToUsername = usernameMatches[1].substring(1); // Remove @
+      }
+    }
+
+    if (!repliedToUsername) {
+      console.log(`   ⚠️  Could not find replied-to username in tweet embed`);
+      return null;
+    }
+
+    console.log(`   Found replied-to user: @${repliedToUsername}`);
+
+    // Step 2: Get follower count from FrontRunPro for the REPLIED-TO user
+    console.log(`   Fetching follower data for @${repliedToUsername} from FrontRunPro API...`);
+
+    const frontrunResponse = await fetch(`${FRONTRUNPRO_API}/${repliedToUsername}/smart-followers`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Cookie': `__Secure-frontrun.session_token=${FRONTRUNPRO_SESSION_TOKEN}`,
+        'x-copilot-client-version': '0.0.186',
+        'x-copilot-client-language': 'EN_US'
+      },
+      timeout: 10000
+    });
+
+    if (!frontrunResponse.ok) {
+      console.log(`   FrontRunPro API error: ${frontrunResponse.status}`);
+      return null;
+    }
+
+    const frontrunData = await frontrunResponse.json();
+
+    if (frontrunData && frontrunData.followers_count !== undefined) {
+      const followers = frontrunData.followers_count;
+      const followersText = formatFollowerCount(followers);
+
+      console.log(`✅ Got follower count for @${repliedToUsername}: ${followers} (${followersText})`);
+
+      return {
+        replied_to_username: repliedToUsername,
+        replied_to_followers: followers,
+        replied_to_followers_text: followersText
+      };
+    }
+
+    console.log(`   ⚠️  No follower data in FrontRunPro response`);
+    return null;
+
+  } catch (error) {
+    console.log(`   Error fetching Twitter stats: ${error.message}`);
+    return null;
+  }
+}
+
+// Helper function to format follower count (e.g., 1200 -> "1.2K")
+function formatFollowerCount(count) {
+  if (count >= 1000000) {
+    return (count / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+  } else if (count >= 1000) {
+    return (count / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+  } else {
+    return count.toString();
   }
 }
 
@@ -218,11 +335,23 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
   const hasTwitter = !!txData.tweetUrl;
   const hasFarcasterFid = !!txData.id && /^\d+$/.test(txData.id); // FID is numeric
 
+  let twitterStats = null;
+
   if (hasTwitter) {
     // Twitter/X deploy - proceed immediately
     console.log(`   Platform: X/Twitter`);
     console.log(`   Tweet: ${txData.tweetUrl}`);
     console.log(`   Image: ${txData.imageUrl || 'N/A'}`);
+
+    // Try to get follower count from FrontRunPro API
+    console.log(`   Fetching Twitter stats from FrontRunPro...`);
+    twitterStats = await getTwitterStatsFromFrontRunPro(txData.tweetUrl);
+
+    if (twitterStats) {
+      console.log(`   ✅ Reply stats: @${twitterStats.replied_to_username} has ${twitterStats.replied_to_followers_text} followers`);
+    } else {
+      console.log(`   ℹ️  Not a reply or couldn't fetch stats`);
+    }
   } else if (hasFarcasterFid) {
     // Farcaster deploy - verify X account linkage
     console.log(`   Platform: Farcaster`);
@@ -265,7 +394,9 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
       messageId: txData.messageId || txData.tweetUrl || '',
       id: txData.id || '',
       xUsername: txData.xUsername || null // X username for verified Farcaster users
-    }
+    },
+    // Twitter stats from replied-to user (if it's a reply)
+    twitter_stats: twitterStats
   };
 
   // Post to webhook immediately

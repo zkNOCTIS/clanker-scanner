@@ -121,12 +121,29 @@ async function startListener() {
 
     console.log(`📡 Listening to Clanker Factory: ${CLANKER_FACTORY}`);
 
-    contract = new ethers.Contract(CLANKER_FACTORY, FACTORY_ABI, provider);
+    // Listen to ALL events from factory (to debug the actual event structure)
+    const filter = {
+      address: CLANKER_FACTORY
+    };
 
-    // Listen for TokenCreated events
-    contract.on('TokenCreated', handleTokenCreated);
+    provider.on(filter, async (log) => {
+      console.log('\n🚀 NEW EVENT DETECTED!');
+      console.log('Block:', log.blockNumber);
+      console.log('Tx:', log.transactionHash);
+      console.log('Topics:', log.topics);
+      console.log('Data preview:', log.data.substring(0, 100) + '...');
 
-    console.log('👂 Listening for new token deployments...\n');
+      // Try to extract token address from topics (usually topics[1] or topics[2])
+      if (log.topics.length >= 2) {
+        const potentialAddress = '0x' + log.topics[1].slice(26); // Remove padding
+        console.log('Potential token address:', potentialAddress);
+
+        // Fetch from Clanker API
+        handleTokenCreated(potentialAddress, '', '', '', { blockNumber: log.blockNumber });
+      }
+    });
+
+    console.log('👂 Listening for ALL events from factory...\n');
 
     // Reset reconnect attempts on successful connection
     reconnectAttempts = 0;

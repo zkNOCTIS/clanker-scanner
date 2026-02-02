@@ -138,34 +138,28 @@ export function TokenCard({ token, isLatest, onTweetDeleted }: { token: ClankerT
               {platform === "FARCASTER" && (
                 <span className="text-purple-400 font-mono text-sm">FC</span>
               )}
-              {twitterStats && (
-                <a
-                  href={`https://x.com/${twitterStats.replied_to_username}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 px-2 py-0.5 bg-blue-500/10 border border-blue-500/30 rounded text-blue-400 font-mono text-xs hover:bg-blue-500/20 transition-colors"
-                  title={`Replied to @${twitterStats.replied_to_username}`}
-                >
-                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
-                  {twitterStats.replied_to_followers_text} smart followers
-                </a>
-              )}
             </div>
             <h2 className="text-2xl font-mono font-bold text-[#00d9ff] truncate">{token.name}</h2>
             <p className="text-lg font-mono text-[#00ff88]">${token.symbol}</p>
             {twitterStats && (
-              <p className="text-sm font-mono text-blue-400 mt-1">
-                Reply to <a
-                  href={`https://x.com/${twitterStats.replied_to_username}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="hover:underline"
-                >
-                  @{twitterStats.replied_to_username}
-                </a>
-              </p>
+              <a
+                href={`https://x.com/${twitterStats.replied_to_username}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 flex flex-col items-center gap-2 px-6 py-4 bg-blue-500/10 border-2 border-blue-500/30 rounded-lg hover:bg-blue-500/20 hover:border-blue-500/50 transition-all"
+              >
+                <div className="flex items-center gap-2">
+                  <svg className="w-5 h-5 text-blue-400" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                  <span className="text-xl font-mono font-bold text-blue-400">
+                    {twitterStats.replied_to_followers_text} Smart Followers
+                  </span>
+                </div>
+                <p className="text-sm font-mono text-blue-300">
+                  Reply to @{twitterStats.replied_to_username}
+                </p>
+              </a>
             )}
           </div>
 

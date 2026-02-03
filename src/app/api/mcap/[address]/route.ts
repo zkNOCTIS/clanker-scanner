@@ -135,7 +135,7 @@ export async function GET(
       mcap,
     }, {
       headers: {
-        'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=60'
+        'Cache-Control': 'public, s-maxage=3, stale-while-revalidate=6'
       }
     });
 

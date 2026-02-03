@@ -61,8 +61,13 @@ export function TokenCard({ token, isLatest, onTweetDeleted }: { token: ClankerT
       try {
         const res = await fetch(`/api/mcap/${token.contract_address}`);
         const data = await res.json();
-        if (data.mcap) setMcap(data.mcap);
-      } catch (e) {}
+        console.log(`Mcap API response for ${token.contract_address}:`, data);
+        if (data.mcap !== null && data.mcap !== undefined) {
+          setMcap(data.mcap);
+        }
+      } catch (e) {
+        console.error('Error fetching mcap:', e);
+      }
     }
     fetchMcap();
     const interval = setInterval(fetchMcap, 3000);

@@ -94,6 +94,8 @@ async function calculateMcapWithRpc(rpcUrl: string, tokenAddr: string): Promise<
   const poolData = await stateViewContract.getSlot0(poolId);
   const sqrtPriceX96 = BigInt(poolData[0]);
 
+  console.log(`[${tokenAddr}] sqrtPriceX96:`, sqrtPriceX96.toString());
+
   if (sqrtPriceX96 === 0n) {
     throw new Error('Pool not initialized');
   }
@@ -103,17 +105,22 @@ async function calculateMcapWithRpc(rpcUrl: string, tokenAddr: string): Promise<
   const ONE_ETH = 10n ** 18n;
 
   let priceWei = ((Q96 * ONE_ETH) / sqrtPriceX96) * Q96 / sqrtPriceX96;
+  console.log(`[${tokenAddr}] priceWei:`, priceWei.toString());
 
   // If WETH is token1, invert the price
   let finalPriceWei: bigint;
   if (token0 === wethAddr) {
+    console.log(`[${tokenAddr}] WETH is token0, using priceWei as-is`);
     finalPriceWei = priceWei;
   } else {
+    console.log(`[${tokenAddr}] WETH is token1, inverting price`);
     finalPriceWei = priceWei > 0n ? (ONE_ETH * ONE_ETH) / priceWei : 0n;
   }
+  console.log(`[${tokenAddr}] finalPriceWei:`, finalPriceWei.toString());
 
   // Calculate market cap in ETH
   const mcapInEth = (finalPriceWei * SUPPLY) / ONE_ETH;
+  console.log(`[${tokenAddr}] mcapInEth:`, mcapInEth.toString());
 
   // Get ETH/USD price from Chainlink
   const chainlinkContract = new ethers.Contract(
@@ -124,9 +131,11 @@ async function calculateMcapWithRpc(rpcUrl: string, tokenAddr: string): Promise<
 
   const roundData = await chainlinkContract.latestRoundData();
   const ethPriceUsd = Number(roundData[1]) / 10 ** 8;
+  console.log(`[${tokenAddr}] ETH price:`, ethPriceUsd);
 
   // Calculate final market cap in USD
   const mcapUsd = Number(mcapInEth) / 10 ** 18 * ethPriceUsd;
+  console.log(`[${tokenAddr}] mcapUsd BEFORE floor:`, mcapUsd);
 
   return Math.floor(mcapUsd);
 }

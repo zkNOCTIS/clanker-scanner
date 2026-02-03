@@ -36,7 +36,7 @@ export default function Home() {
     return () => clearInterval(interval);
   }, []);
 
-  // Fetch and update mcaps for sidebar - runs every 3 seconds
+  // Fetch and update mcaps for sidebar - runs every 2 seconds
   useEffect(() => {
     const fetchAllMcaps = async () => {
       tokens.forEach(async (token) => {
@@ -53,8 +53,8 @@ export default function Home() {
     // Fetch immediately when tokens change
     fetchAllMcaps();
 
-    // Then fetch every 3 seconds to update mcaps in real-time
-    const interval = setInterval(fetchAllMcaps, 3000);
+    // Then fetch every 2 seconds to update mcaps in real-time
+    const interval = setInterval(fetchAllMcaps, 2000);
     return () => clearInterval(interval);
   }, [tokens]);
 

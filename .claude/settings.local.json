@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git push)",
+      "WebFetch(domain:docs.frontrun.pro)"
+    ]
+  }
+}

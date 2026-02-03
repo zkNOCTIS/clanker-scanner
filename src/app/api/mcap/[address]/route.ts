@@ -52,9 +52,21 @@ const CHAINLINK_ABI = [
   },
 ];
 
+// Timeout helper
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error('RPC timeout')), timeoutMs)
+    )
+  ]);
+}
+
 // Function to calculate mcap using a specific RPC
 async function calculateMcapWithRpc(rpcUrl: string, tokenAddr: string): Promise<number> {
-  const provider = new ethers.JsonRpcProvider(rpcUrl);
+  const provider = new ethers.JsonRpcProvider(rpcUrl, undefined, {
+    staticNetwork: true, // Faster - don't fetch network on every request
+  });
 
   const wethAddr = ethers.getAddress(WETH);
   const token = ethers.getAddress(tokenAddr);
@@ -126,10 +138,15 @@ export async function GET(
   const { address } = await params;
 
   try {
-    // Try all RPC endpoints in parallel - use first successful result
+    // Try all RPC endpoints in parallel with 5s timeout - use first successful result
     const results = await Promise.allSettled(
-      RPC_URLS.map(rpcUrl => calculateMcapWithRpc(rpcUrl, address))
+      RPC_URLS.map(rpcUrl => withTimeout(calculateMcapWithRpc(rpcUrl, address), 5000))
     );
+
+    // Log results for debugging
+    const successCount = results.filter(r => r.status === 'fulfilled').length;
+    const failCount = results.filter(r => r.status === 'rejected').length;
+    console.log(`Mcap calculation for ${address}: ${successCount} succeeded, ${failCount} failed`);
 
     // Find first successful result
     const successfulResult = results.find(
@@ -137,6 +154,7 @@ export async function GET(
     );
 
     if (successfulResult) {
+      console.log(`Returning mcap: $${successfulResult.value.toLocaleString()}`);
       return NextResponse.json({
         mcap: successfulResult.value,
       }, {
@@ -146,8 +164,12 @@ export async function GET(
       });
     }
 
-    // All RPCs failed
-    console.error('All RPC endpoints failed');
+    // All RPCs failed - log some error details
+    const errors = results
+      .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+      .map(r => r.reason?.message || r.reason)
+      .slice(0, 3); // First 3 errors
+    console.error(`All RPC endpoints failed for ${address}. Sample errors:`, errors);
     return NextResponse.json({ mcap: null });
 
   } catch (error) {

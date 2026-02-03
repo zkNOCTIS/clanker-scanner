@@ -166,10 +166,6 @@ export async function GET(
       console.log(`Returning mcap: $${successfulResult.value.toLocaleString()}`);
       return NextResponse.json({
         mcap: successfulResult.value,
-      }, {
-        headers: {
-          'Cache-Control': 'public, s-maxage=3, stale-while-revalidate=6'
-        }
       });
     }
 

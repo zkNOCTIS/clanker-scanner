@@ -171,7 +171,9 @@ export function TokenCard({ token, isLatest, onTweetDeleted }: { token: ClankerT
                 </p>
               </a>
             ) : mcap ? (
-              <span className="px-3 py-2 text-lg font-mono font-bold bg-[#00ff88] text-black rounded-sm">
+              <span className={`px-3 py-2 text-lg font-mono font-bold rounded-sm ${
+                mcap >= 35000 ? 'bg-[#00ff88] text-black' : 'bg-yellow-400 text-black'
+              }`}>
                 {formatMcap(mcap)}
               </span>
             ) : null}

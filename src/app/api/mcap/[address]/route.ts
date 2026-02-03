@@ -126,18 +126,29 @@ export async function GET(
   const { address } = await params;
 
   try {
-    // Race all RPC endpoints - first one to respond wins
-    const mcap = await Promise.race(
+    // Try all RPC endpoints in parallel - use first successful result
+    const results = await Promise.allSettled(
       RPC_URLS.map(rpcUrl => calculateMcapWithRpc(rpcUrl, address))
     );
 
-    return NextResponse.json({
-      mcap,
-    }, {
-      headers: {
-        'Cache-Control': 'public, s-maxage=3, stale-while-revalidate=6'
-      }
-    });
+    // Find first successful result
+    const successfulResult = results.find(
+      (result): result is PromiseFulfilledResult<number> => result.status === 'fulfilled'
+    );
+
+    if (successfulResult) {
+      return NextResponse.json({
+        mcap: successfulResult.value,
+      }, {
+        headers: {
+          'Cache-Control': 'public, s-maxage=3, stale-while-revalidate=6'
+        }
+      });
+    }
+
+    // All RPCs failed
+    console.error('All RPC endpoints failed');
+    return NextResponse.json({ mcap: null });
 
   } catch (error) {
     console.error('Error calculating market cap:', error);

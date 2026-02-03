@@ -4,12 +4,6 @@ import { useState, useEffect } from "react";
 import { ClankerToken, getTwitterUsername, getTweetId, getTweetUrl, getCastUrl } from "@/types";
 import { TweetEmbed } from "./TweetEmbed";
 
-function formatMcap(mcap: number): string {
-  if (mcap >= 1_000_000) return `$${(mcap / 1_000_000).toFixed(1)}M`;
-  if (mcap >= 1_000) return `$${Math.round(mcap / 1_000)}k`;
-  return `$${mcap.toFixed(0)}`;
-}
-
 function formatTimeAgo(dateStr: string): string {
   const now = Date.now();
   const created = new Date(dateStr).getTime();
@@ -25,7 +19,6 @@ function formatTimeAgo(dateStr: string): string {
 }
 
 export function TokenCard({ token, isLatest, onTweetDeleted }: { token: ClankerToken; isLatest?: boolean; onTweetDeleted?: () => void }) {
-  const [mcap, setMcap] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
   const [, setTick] = useState(0);
   const [twitterStats, setTwitterStats] = useState<{
@@ -55,24 +48,6 @@ export function TokenCard({ token, isLatest, onTweetDeleted }: { token: ClankerT
     || (tweetUrl ? getTweetId(tweetUrl) : null);
 
   const twitterUser = getTwitterUsername(messageUrl) || (tweetUrl ? getTwitterUsername(tweetUrl) : null);
-
-  useEffect(() => {
-    async function fetchMcap() {
-      try {
-        const res = await fetch(`/api/mcap/${token.contract_address}`);
-        const data = await res.json();
-        console.log(`Mcap API response for ${token.contract_address}:`, data);
-        if (data.mcap !== null && data.mcap !== undefined) {
-          setMcap(data.mcap);
-        }
-      } catch (e) {
-        console.error('Error fetching mcap:', e);
-      }
-    }
-    fetchMcap();
-    const interval = setInterval(fetchMcap, 3000);
-    return () => clearInterval(interval);
-  }, [token.contract_address]);
 
   // Extract replied-to username from tweet URL and fetch stats
   useEffect(() => {
@@ -148,9 +123,9 @@ export function TokenCard({ token, isLatest, onTweetDeleted }: { token: ClankerT
             <p className="text-lg font-mono text-[#00ff88]">${token.symbol}</p>
           </div>
 
-          {/* Right side - Twitter stats or Mcap badge */}
+          {/* Right side - Twitter stats only */}
           <div className="flex-shrink-0">
-            {twitterStats ? (
+            {twitterStats && (
               <a
                 href={`https://x.com/${twitterStats.replied_to_username}`}
                 target="_blank"
@@ -170,13 +145,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted }: { token: ClankerT
                   Reply to @{twitterStats.replied_to_username}
                 </p>
               </a>
-            ) : mcap ? (
-              <span className={`px-3 py-2 text-lg font-mono font-bold rounded-sm ${
-                mcap >= 35000 ? 'bg-[#00ff88] text-black' : 'bg-yellow-400 text-black'
-              }`}>
-                {formatMcap(mcap)}
-              </span>
-            ) : null}
+            )}
           </div>
         </div>
 

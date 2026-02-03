@@ -118,10 +118,6 @@ async function calculateMcapWithRpc(rpcUrl: string, tokenAddr: string): Promise<
   }
   console.log(`[${tokenAddr}] finalPriceWei:`, finalPriceWei.toString());
 
-  // Calculate market cap in ETH
-  const mcapInEth = (finalPriceWei * SUPPLY) / ONE_ETH;
-  console.log(`[${tokenAddr}] mcapInEth:`, mcapInEth.toString());
-
   // Get ETH/USD price from Chainlink
   const chainlinkContract = new ethers.Contract(
     ethers.getAddress(CHAINLINK_ETH_USD),
@@ -133,9 +129,13 @@ async function calculateMcapWithRpc(rpcUrl: string, tokenAddr: string): Promise<
   const ethPriceUsd = Number(roundData[1]) / 10 ** 8;
   console.log(`[${tokenAddr}] ETH price:`, ethPriceUsd);
 
+  // Calculate market cap in ETH (using float division like Python to preserve precision)
+  const mcapInEth = (Number(finalPriceWei) * Number(SUPPLY)) / 10 ** 18;
+  console.log(`[${tokenAddr}] mcapInEth:`, mcapInEth);
+
   // Calculate final market cap in USD
-  const mcapUsd = Number(mcapInEth) / 10 ** 18 * ethPriceUsd;
-  console.log(`[${tokenAddr}] mcapUsd BEFORE floor:`, mcapUsd);
+  const mcapUsd = mcapInEth * ethPriceUsd;
+  console.log(`[${tokenAddr}] mcapUsd:`, mcapUsd);
 
   return Math.floor(mcapUsd);
 }

@@ -65,7 +65,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted }: { token: ClankerT
       } catch (e) {}
     }
     fetchMcap();
-    const interval = setInterval(fetchMcap, 30000);
+    const interval = setInterval(fetchMcap, 3000);
     return () => clearInterval(interval);
   }, [token.contract_address]);
 

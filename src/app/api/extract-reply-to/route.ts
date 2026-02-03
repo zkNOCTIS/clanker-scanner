@@ -18,7 +18,11 @@ export async function GET(req: Request) {
     // Extract tweet ID from URL
     const tweetIdMatch = tweetUrl.match(/status\/(\d+)/);
     if (!tweetIdMatch) {
-      return NextResponse.json({ replied_to_username: null });
+      return NextResponse.json({ replied_to_username: null }, {
+        headers: {
+          'Cache-Control': 'public, s-maxage=21600, stale-while-revalidate=43200'
+        }
+      });
     }
     const tweetId = tweetIdMatch[1];
 
@@ -39,6 +43,10 @@ export async function GET(req: Request) {
         if (syndicationData?.in_reply_to_screen_name) {
           return NextResponse.json({
             replied_to_username: syndicationData.in_reply_to_screen_name
+          }, {
+            headers: {
+              'Cache-Control': 'public, s-maxage=21600, stale-while-revalidate=43200'
+            }
           });
         }
 
@@ -46,6 +54,10 @@ export async function GET(req: Request) {
         if (syndicationData?.parent?.user?.screen_name) {
           return NextResponse.json({
             replied_to_username: syndicationData.parent.user.screen_name
+          }, {
+            headers: {
+              'Cache-Control': 'public, s-maxage=21600, stale-while-revalidate=43200'
+            }
           });
         }
       }
@@ -68,13 +80,21 @@ export async function GET(req: Request) {
       if (oembedData?.html) {
         const replyMatch = oembedData.html.match(/Replying to\s+<a[^>]*>@([a-zA-Z0-9_]+)<\/a>/);
         if (replyMatch) {
-          return NextResponse.json({ replied_to_username: replyMatch[1] });
+          return NextResponse.json({ replied_to_username: replyMatch[1] }, {
+            headers: {
+              'Cache-Control': 'public, s-maxage=21600, stale-while-revalidate=43200'
+            }
+          });
         }
       }
     }
 
     // No reply-to information found
-    return NextResponse.json({ replied_to_username: null });
+    return NextResponse.json({ replied_to_username: null }, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=21600, stale-while-revalidate=43200'
+      }
+    });
 
   } catch (error) {
     console.error('Error extracting reply-to:', error);

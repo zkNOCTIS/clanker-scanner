@@ -44,6 +44,10 @@ export async function GET(
 
     return NextResponse.json({
       smart_followers: data.data?.totalCount || 0
+    }, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=21600, stale-while-revalidate=43200'
+      }
     });
 
   } catch (error) {

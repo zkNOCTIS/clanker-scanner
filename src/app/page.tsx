@@ -36,18 +36,26 @@ export default function Home() {
     return () => clearInterval(interval);
   }, []);
 
-  // Fetch mcaps for sidebar
+  // Fetch and update mcaps for sidebar - runs every 3 seconds
   useEffect(() => {
-    tokens.forEach(async (token) => {
-      if (mcaps[token.contract_address]) return;
-      try {
-        const res = await fetch(`/api/mcap/${token.contract_address}`);
-        const data = await res.json();
-        if (data.mcap) {
-          setMcaps((prev) => ({ ...prev, [token.contract_address]: data.mcap }));
-        }
-      } catch {}
-    });
+    const fetchAllMcaps = async () => {
+      tokens.forEach(async (token) => {
+        try {
+          const res = await fetch(`/api/mcap/${token.contract_address}`);
+          const data = await res.json();
+          if (data.mcap !== null && data.mcap !== undefined) {
+            setMcaps((prev) => ({ ...prev, [token.contract_address]: data.mcap }));
+          }
+        } catch {}
+      });
+    };
+
+    // Fetch immediately when tokens change
+    fetchAllMcaps();
+
+    // Then fetch every 3 seconds to update mcaps in real-time
+    const interval = setInterval(fetchAllMcaps, 3000);
+    return () => clearInterval(interval);
   }, [tokens]);
 
   useEffect(() => {

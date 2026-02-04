@@ -178,8 +178,9 @@ export function hasRealSocialContext(token: ClankerToken): boolean {
   const socialId = token.social_context?.id || "";
   if (getTweetId(messageId) || getTweetId(socialId)) return true;
 
-  // REMOVED: Farcaster-only check (was: if castHash exists return true)
-  // Now only Farcaster tokens with additional social links will pass below
+  // Farcaster tokens with valid cast_hash - allow them through
+  // Railway listener already filters for X verification or whitelisted FIDs
+  if (castHash && castHash.startsWith("0x")) return true;
 
   // Tokens with 2+ UNIQUE social links (different URLs)
   // Filters out scams where all links point to same URL

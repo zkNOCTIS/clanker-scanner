@@ -11,6 +11,8 @@ export default function Home() {
   const [mcaps, setMcaps] = useState<Record<string, number>>({});
   const seenRef = useRef<Set<string>>(new Set());
   const deletedRef = useRef<Set<string>>(new Set());
+  const initialLoadDoneRef = useRef(false);
+  const newTokensRef = useRef<Set<string>>(new Set()); // Track tokens that arrived after initial load
   const [, setTick] = useState(0);
   const [searchCA, setSearchCA] = useState("");
 
@@ -86,8 +88,19 @@ export default function Home() {
         }
 
         if (unseen.length > 0) {
-          unseen.forEach((t) => seenRef.current.add(t.contract_address));
+          unseen.forEach((t) => {
+            seenRef.current.add(t.contract_address);
+            // Only mark as "new" if initial load is done (for Twitter stats fetching)
+            if (initialLoadDoneRef.current) {
+              newTokensRef.current.add(t.contract_address);
+            }
+          });
           setTokens((prev) => [...unseen, ...prev].slice(0, 50));
+        }
+
+        // Mark initial load as done after first fetch
+        if (!initialLoadDoneRef.current) {
+          initialLoadDoneRef.current = true;
         }
       } catch (e) {
         console.error('[Scanner] Fetch error:', e);
@@ -161,7 +174,12 @@ export default function Home() {
               <div className="max-w-3xl mx-auto space-y-4">
                 {tokens.map((token, index) => (
                   <div key={token.contract_address} id={`token-${token.contract_address}`}>
-                    <TokenCard token={token} isLatest={index === 0} onTweetDeleted={() => handleTweetDeleted(token.contract_address)} />
+                    <TokenCard
+                      token={token}
+                      isLatest={index === 0}
+                      onTweetDeleted={() => handleTweetDeleted(token.contract_address)}
+                      shouldFetchStats={newTokensRef.current.has(token.contract_address)}
+                    />
                   </div>
                 ))}
               </div>

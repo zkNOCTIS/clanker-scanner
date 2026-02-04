@@ -18,7 +18,7 @@ function formatTimeAgo(dateStr: string): string {
   return `${Math.floor(diffHr / 24)}d ago`;
 }
 
-export function TokenCard({ token, isLatest, onTweetDeleted }: { token: ClankerToken; isLatest?: boolean; onTweetDeleted?: () => void }) {
+export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = false }: { token: ClankerToken; isLatest?: boolean; onTweetDeleted?: () => void; shouldFetchStats?: boolean }) {
   const [copied, setCopied] = useState(false);
   const [, setTick] = useState(0);
   const [twitterStats, setTwitterStats] = useState<{
@@ -49,9 +49,9 @@ export function TokenCard({ token, isLatest, onTweetDeleted }: { token: ClankerT
 
   const twitterUser = getTwitterUsername(messageUrl) || (tweetUrl ? getTwitterUsername(tweetUrl) : null);
 
-  // Extract replied-to username from tweet URL and fetch stats
+  // Extract replied-to username from tweet URL and fetch stats (only for new tokens)
   useEffect(() => {
-    if (!tweetUrl || twitterStats) return; // Skip if no tweet URL or already have stats
+    if (!shouldFetchStats || !tweetUrl || twitterStats) return; // Skip if not a new token, no tweet URL, or already have stats
 
     const extractAndFetchStats = async () => {
       try {

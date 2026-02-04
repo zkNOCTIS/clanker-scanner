@@ -36,25 +36,35 @@ export default function Home() {
     return () => clearInterval(interval);
   }, []);
 
-  // Fetch and update mcaps for sidebar - runs every 2 seconds
+  // Fetch and update mcaps for sidebar - staggers requests to avoid rate limits
   useEffect(() => {
     const fetchAllMcaps = async () => {
-      tokens.forEach(async (token) => {
-        try {
-          const res = await fetch(`/api/mcap/${token.contract_address}`);
-          const data = await res.json();
-          if (data.mcap !== null && data.mcap !== undefined) {
-            setMcaps((prev) => ({ ...prev, [token.contract_address]: data.mcap }));
-          }
-        } catch {}
-      });
+      // Stagger requests - fetch 3 tokens at a time with delay between batches
+      for (let i = 0; i < tokens.length; i += 3) {
+        const batch = tokens.slice(i, i + 3);
+        await Promise.all(
+          batch.map(async (token) => {
+            try {
+              const res = await fetch(`/api/mcap/${token.contract_address}`);
+              const data = await res.json();
+              if (data.mcap !== null && data.mcap !== undefined) {
+                setMcaps((prev) => ({ ...prev, [token.contract_address]: data.mcap }));
+              }
+            } catch {}
+          })
+        );
+        // Delay between batches to avoid rate limits
+        if (i + 3 < tokens.length) {
+          await new Promise((r) => setTimeout(r, 500));
+        }
+      }
     };
 
     // Fetch immediately when tokens change
     fetchAllMcaps();
 
-    // Then fetch every 2 seconds to update mcaps in real-time
-    const interval = setInterval(fetchAllMcaps, 2000);
+    // Then fetch every 10 seconds to update mcaps
+    const interval = setInterval(fetchAllMcaps, 10000);
     return () => clearInterval(interval);
   }, [tokens]);
 

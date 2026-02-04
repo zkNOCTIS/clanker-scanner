@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-const ALPHAGATE_API = 'https://api.alphagate.io';
+const ALPHAGATE_API = 'https://api.alphagate.io/api/v1';
 const ALPHAGATE_SESSION_ID = process.env.ALPHAGATE_SESSION_ID;
 const ALPHAGATE_USER_ID = process.env.ALPHAGATE_USER_ID;
 

@@ -256,6 +256,11 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
   }
 
   // Build token data object matching Clanker API format
+  // For Farcaster deploys, messageId contains the cast hash (starts with 0x)
+  const castHash = hasFarcasterFid && txData.messageId && txData.messageId.startsWith('0x')
+    ? txData.messageId
+    : null;
+
   const tokenData = {
     contract_address: tokenAddress,
     name: name,
@@ -267,6 +272,7 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
     creator_address: null,
     twitter_link: hasTwitter ? txData.tweetUrl : null,
     farcaster_link: hasFarcasterFid ? txData.messageId : null,
+    cast_hash: castHash, // Cast hash for Farcaster deploys
     website_link: null,
     telegram_link: null,
     discord_link: null,

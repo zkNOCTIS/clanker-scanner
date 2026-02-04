@@ -24,6 +24,11 @@ const WHITELISTED_FARCASTER_FIDS = new Set([
   '886870'  // @bankr (bankrbot)
 ]);
 
+// Blacklisted Farcaster FIDs - block these users from showing on scanner
+const BLACKLISTED_FARCASTER_FIDS = new Set([
+  '897406'  // @outflow.eth - spam deployer
+]);
+
 let currentUrlIndex = 0; // Track which RPC we're using
 
 // Clanker API for fetching social context
@@ -235,6 +240,12 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
     console.log(`   Platform: Farcaster`);
     console.log(`   FID: ${txData.id}`);
     console.log(`   Cast: ${txData.messageId || 'N/A'}`);
+
+    // Check if FID is blacklisted
+    if (BLACKLISTED_FARCASTER_FIDS.has(txData.id)) {
+      console.log(`🚫 Farcaster FID ${txData.id} is blacklisted - skipping`);
+      return;
+    }
 
     // Check if FID is whitelisted (bypass X account requirement)
     if (WHITELISTED_FARCASTER_FIDS.has(txData.id)) {

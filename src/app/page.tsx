@@ -192,8 +192,8 @@ export default function Home() {
               <div className="px-3 py-2 border-b border-[#30363d]">
                 <span className="font-mono text-sm text-[#00d9ff]">RECENT ({tokens.length})</span>
               </div>
-              <div className="max-h-[70vh] overflow-y-auto">
-                {tokens.slice(0, 15).map((token, index) => {
+              <div className="max-h-[calc(100vh-8rem)] overflow-y-auto">
+                {tokens.map((token, index) => {
                   const timeAgo = Math.floor((Date.now() - new Date(token.created_at).getTime()) / 1000);
                   const timeStr = timeAgo < 60 ? `${timeAgo}s` : timeAgo < 3600 ? `${Math.floor(timeAgo / 60)}m` : `${Math.floor(timeAgo / 3600)}h`;
 

@@ -19,6 +19,11 @@ const WHITELISTED_DEPLOYERS = new Set([
   '0xd9acd656a5f1b519c9e76a2a6092265a74186e58'
 ]);
 
+// Whitelisted Farcaster FIDs - these users can deploy without linked X account
+const WHITELISTED_FARCASTER_FIDS = new Set([
+  '886870'  // @bankr (bankrbot)
+]);
+
 let currentUrlIndex = 0; // Track which RPC we're using
 
 // Clanker API for fetching social context
@@ -231,15 +236,20 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
     console.log(`   FID: ${txData.id}`);
     console.log(`   Cast: ${txData.messageId || 'N/A'}`);
 
-    const xVerification = await checkFarcasterUserHasX(txData.id);
+    // Check if FID is whitelisted (bypass X account requirement)
+    if (WHITELISTED_FARCASTER_FIDS.has(txData.id)) {
+      console.log(`✅ Farcaster FID ${txData.id} is whitelisted - proceeding without X verification`);
+    } else {
+      const xVerification = await checkFarcasterUserHasX(txData.id);
 
-    if (!xVerification.hasLinkedX) {
-      console.log('⚠️  Farcaster user has NO linked X account, skipping');
-      return;
+      if (!xVerification.hasLinkedX) {
+        console.log('⚠️  Farcaster user has NO linked X account, skipping');
+        return;
+      }
+
+      console.log(`✅ Farcaster user has linked X account (@${xVerification.xUsername}) - proceeding`);
+      txData.xUsername = xVerification.xUsername; // Add X username to txData
     }
-
-    console.log(`✅ Farcaster user has linked X account (@${xVerification.xUsername}) - proceeding`);
-    txData.xUsername = xVerification.xUsername; // Add X username to txData
   } else {
     console.log('⚠️  No Twitter URL or Farcaster FID found, skipping');
     return;

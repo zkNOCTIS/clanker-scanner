@@ -32,8 +32,28 @@ export async function GET(
     });
 
     if (!response.ok) {
+      // Log rate limit headers if present
+      const rateLimitRemaining = response.headers.get('x-ratelimit-remaining');
+      const rateLimitLimit = response.headers.get('x-ratelimit-limit');
+      const rateLimitReset = response.headers.get('x-ratelimit-reset');
+      const retryAfter = response.headers.get('retry-after');
+
+      console.error(`FrontRunPro API error ${response.status} for ${username}:`, {
+        rateLimitRemaining,
+        rateLimitLimit,
+        rateLimitReset,
+        retryAfter,
+        allHeaders: Object.fromEntries(response.headers.entries())
+      });
+
       return NextResponse.json(
-        { error: `FrontRunPro API error: ${response.status}` },
+        {
+          error: `FrontRunPro API error: ${response.status}`,
+          rateLimitRemaining,
+          rateLimitLimit,
+          rateLimitReset,
+          retryAfter
+        },
         { status: response.status }
       );
     }

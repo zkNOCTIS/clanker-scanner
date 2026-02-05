@@ -38,18 +38,29 @@ export default function Home() {
     return () => clearInterval(interval);
   }, []);
 
-  // Fetch and update mcaps for sidebar - runs every 3 seconds
+  // Fetch and update mcaps for sidebar - runs every 3 seconds using batch endpoint
   useEffect(() => {
+    if (tokens.length === 0) return;
+
     const fetchAllMcaps = async () => {
-      tokens.forEach(async (token) => {
-        try {
-          const res = await fetch(`/api/mcap/${token.contract_address}`);
-          const data = await res.json();
-          if (data.mcap !== null && data.mcap !== undefined) {
-            setMcaps((prev) => ({ ...prev, [token.contract_address]: data.mcap }));
-          }
-        } catch {}
-      });
+      try {
+        const addresses = tokens.map((t) => t.contract_address).join(",");
+        const res = await fetch(`/api/mcap/batch?addresses=${addresses}`);
+        const data = await res.json();
+        if (data.mcaps) {
+          setMcaps((prev) => {
+            const updated = { ...prev };
+            for (const [addr, mcap] of Object.entries(data.mcaps)) {
+              if (mcap !== null) {
+                updated[addr] = mcap as number;
+              }
+            }
+            return updated;
+          });
+        }
+      } catch (e) {
+        console.error("[Scanner] Batch mcap fetch error:", e);
+      }
     };
 
     // Fetch immediately when tokens change

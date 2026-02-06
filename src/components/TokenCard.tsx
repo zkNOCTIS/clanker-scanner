@@ -164,7 +164,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
           </button>
 
           <a
-            href={`https://dexscreener.com/base/${token.contract_address}`}
+            href={`https://gmgn.ai/base/token/${token.contract_address}`}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-1 text-[#00ff88] font-mono text-xs hover:bg-[#00ff88]/10 px-2 py-1 rounded transition-colors"
@@ -172,7 +172,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
               <path d="M3 3v18h18V3H3zm16 16H5V5h14v14zM7 7h2v10H7V7zm4 4h2v6h-2v-6zm4-2h2v8h-2V9z"/>
             </svg>
-            DexScreener
+            GMGN
           </a>
 
           {token.msg_sender && (

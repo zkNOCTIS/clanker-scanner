@@ -45,19 +45,15 @@ function getAntibotColor(fee: number): string {
   return "#00ff88";
 }
 
-export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = false }: { token: ClankerToken; isLatest?: boolean; onTweetDeleted?: () => void; shouldFetchStats?: boolean }) {
+export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = false, deployTimestamp = null }: { token: ClankerToken; isLatest?: boolean; onTweetDeleted?: () => void; shouldFetchStats?: boolean; deployTimestamp?: number | null }) {
   const [copied, setCopied] = useState(false);
   const [, setTick] = useState(0);
   const [antibotTick, setAntibotTick] = useState(0);
-  const [deployTimestamp, setDeployTimestamp] = useState<number | null>(null);
   const [twitterStats, setTwitterStats] = useState<{
     replied_to_username: string;
     replied_to_followers: number;
     replied_to_followers_text: string;
   } | null>(token.twitter_stats || null);
-
-  const tokenAgeSec = Math.floor((Date.now() - new Date(token.created_at).getTime()) / 1000);
-  const isAntibotActive = tokenAgeSec < 30; // show timer for first 30s (extra buffer for RPC fetch)
 
   // Update timestamp every 10 seconds
   useEffect(() => {
@@ -65,23 +61,13 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
     return () => clearInterval(interval);
   }, []);
 
-  // Fast 1-second ticker for antibot countdown
+  // Fast 1-second ticker for antibot countdown (only when timer should be visible)
+  const showAntibot = deployTimestamp && (Date.now() - deployTimestamp) / 1000 < 20;
   useEffect(() => {
-    if (!isAntibotActive) return;
+    if (!showAntibot) return;
     const interval = setInterval(() => setAntibotTick(t => t + 1), 1000);
     return () => clearInterval(interval);
-  }, [isAntibotActive]);
-
-  // Fetch real on-chain block timestamp for accurate antibot timer
-  useEffect(() => {
-    if (!isAntibotActive || !token.tx_hash || deployTimestamp) return;
-    fetch(`/api/deploy-time?tx=${token.tx_hash}`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.timestamp) setDeployTimestamp(data.timestamp);
-      })
-      .catch(() => {});
-  }, [token.tx_hash, isAntibotActive, deployTimestamp]);
+  }, [showAntibot]);
 
   const tweetUrl = getTweetUrl(token);
   const castUrl = getCastUrl(token);

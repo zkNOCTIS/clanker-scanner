@@ -221,7 +221,7 @@ export default function Home() {
                         <div className="font-mono text-xs text-gray-500">{timeStr} ago</div>
                       </div>
                       <span className={`font-mono text-xs ${
-                        mcaps[token.contract_address] >= 35000 ? 'text-[#00ff88]' : 'text-yellow-400'
+                        mcaps[token.contract_address] >= 25000 ? 'text-[#00ff88]' : 'text-yellow-400'
                       }`}>
                         {mcaps[token.contract_address]
                           ? `$${mcaps[token.contract_address] >= 1000000

@@ -9,8 +9,6 @@ export default function Home() {
   const [scanning, setScanning] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mcaps, setMcaps] = useState<Record<string, number>>({});
-  const [deployTimes, setDeployTimes] = useState<Record<string, number>>({});
-  const deployTimesFetchedRef = useRef<Set<string>>(new Set());
   const seenRef = useRef<Set<string>>(new Set());
   const deletedRef = useRef<Set<string>>(new Set());
   const initialLoadDoneRef = useRef(false);
@@ -110,20 +108,6 @@ export default function Home() {
           });
           setTokens((prev) => [...unseen, ...prev].slice(0, 50));
 
-          // Fetch deploy times for new tokens (once per token, fire and forget)
-          unseen.forEach((t) => {
-            if (t.tx_hash && !deployTimesFetchedRef.current.has(t.contract_address)) {
-              deployTimesFetchedRef.current.add(t.contract_address);
-              fetch(`/api/deploy-time?tx=${t.tx_hash}`)
-                .then(res => res.json())
-                .then(data => {
-                  if (data.timestamp) {
-                    setDeployTimes(prev => ({ ...prev, [t.contract_address]: data.timestamp }));
-                  }
-                })
-                .catch(() => {});
-            }
-          });
         }
 
         // Mark initial load as done after first fetch
@@ -207,7 +191,6 @@ export default function Home() {
                       isLatest={index === 0}
                       onTweetDeleted={() => handleTweetDeleted(token.contract_address)}
                       shouldFetchStats={newTokensRef.current.has(token.contract_address)}
-                      deployTimestamp={deployTimes[token.contract_address] || null}
                     />
                   </div>
                 ))}

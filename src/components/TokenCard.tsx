@@ -39,7 +39,7 @@ function getAntibotColor(fee: number): string {
   return "#00ff88";
 }
 
-export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = false, deployTimestamp = null }: { token: ClankerToken; isLatest?: boolean; onTweetDeleted?: () => void; shouldFetchStats?: boolean; deployTimestamp?: number | null }) {
+export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = false }: { token: ClankerToken; isLatest?: boolean; onTweetDeleted?: () => void; shouldFetchStats?: boolean }) {
   const [copied, setCopied] = useState(false);
   const [, setTick] = useState(0);
   const [antibotTick, setAntibotTick] = useState(0);
@@ -55,13 +55,13 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
     return () => clearInterval(interval);
   }, []);
 
-  // Fast 1-second ticker for antibot countdown (only when timer should be visible)
-  const showAntibot = deployTimestamp && (Date.now() - deployTimestamp) / 1000 < 20;
+  // Fast 1-second ticker for antibot countdown
+  const tokenAgeSec = Math.floor((Date.now() - new Date(token.created_at).getTime()) / 1000);
   useEffect(() => {
-    if (!showAntibot) return;
+    if (tokenAgeSec > 20) return;
     const interval = setInterval(() => setAntibotTick(t => t + 1), 1000);
     return () => clearInterval(interval);
-  }, [showAntibot]);
+  }, [tokenAgeSec > 20]);
 
   const tweetUrl = getTweetUrl(token);
   const castUrl = getCastUrl(token);
@@ -218,10 +218,9 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
           )}
         </div>
 
-        {/* Antibot Fee Timer - uses on-chain block timestamp */}
+        {/* Antibot Fee Timer - uses created_at timestamp */}
         {(() => {
-          if (!deployTimestamp) return null;
-          const elapsed = (Date.now() - deployTimestamp) / 1000;
+          const elapsed = (Date.now() - new Date(token.created_at).getTime()) / 1000;
           const fee = getAntibotFee(elapsed);
           const color = getAntibotColor(fee);
           const remaining = Math.max(0, Math.ceil(15 - elapsed));

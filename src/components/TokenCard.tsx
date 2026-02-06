@@ -18,20 +18,70 @@ function formatTimeAgo(dateStr: string): string {
   return `${Math.floor(diffHr / 24)}d ago`;
 }
 
+// Bankr antibot fee decay curve (non-linear, from Sniper Auction V2)
+const ANTIBOT_FEE_CURVE: [number, number][] = [
+  [0, 66.68], [1, 58.62], [2, 51.12], [3, 44.17],
+  [5, 31.95], [7, 21.95], [10, 11.11], [12, 6.67], [15, 4.17],
+];
+
+function getAntibotFee(elapsedSeconds: number): number {
+  if (elapsedSeconds <= 0) return ANTIBOT_FEE_CURVE[0][1];
+  if (elapsedSeconds >= 15) return ANTIBOT_FEE_CURVE[ANTIBOT_FEE_CURVE.length - 1][1];
+  for (let i = 0; i < ANTIBOT_FEE_CURVE.length - 1; i++) {
+    const [t1, f1] = ANTIBOT_FEE_CURVE[i];
+    const [t2, f2] = ANTIBOT_FEE_CURVE[i + 1];
+    if (elapsedSeconds >= t1 && elapsedSeconds <= t2) {
+      const ratio = (elapsedSeconds - t1) / (t2 - t1);
+      return f1 + (f2 - f1) * ratio;
+    }
+  }
+  return ANTIBOT_FEE_CURVE[ANTIBOT_FEE_CURVE.length - 1][1];
+}
+
+function getAntibotColor(fee: number): string {
+  if (fee > 40) return "#ff4444";
+  if (fee > 20) return "#ff8800";
+  if (fee > 10) return "#ffcc00";
+  return "#00ff88";
+}
+
 export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = false }: { token: ClankerToken; isLatest?: boolean; onTweetDeleted?: () => void; shouldFetchStats?: boolean }) {
   const [copied, setCopied] = useState(false);
   const [, setTick] = useState(0);
+  const [antibotTick, setAntibotTick] = useState(0);
+  const [deployTimestamp, setDeployTimestamp] = useState<number | null>(null);
   const [twitterStats, setTwitterStats] = useState<{
     replied_to_username: string;
     replied_to_followers: number;
     replied_to_followers_text: string;
   } | null>(token.twitter_stats || null);
 
+  const tokenAgeSec = Math.floor((Date.now() - new Date(token.created_at).getTime()) / 1000);
+  const isAntibotActive = tokenAgeSec < 30; // show timer for first 30s (extra buffer for RPC fetch)
+
   // Update timestamp every 10 seconds
   useEffect(() => {
     const interval = setInterval(() => setTick(t => t + 1), 10000);
     return () => clearInterval(interval);
   }, []);
+
+  // Fast 1-second ticker for antibot countdown
+  useEffect(() => {
+    if (!isAntibotActive) return;
+    const interval = setInterval(() => setAntibotTick(t => t + 1), 1000);
+    return () => clearInterval(interval);
+  }, [isAntibotActive]);
+
+  // Fetch real on-chain block timestamp for accurate antibot timer
+  useEffect(() => {
+    if (!isAntibotActive || !token.tx_hash || deployTimestamp) return;
+    fetch(`/api/deploy-time?tx=${token.tx_hash}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.timestamp) setDeployTimestamp(data.timestamp);
+      })
+      .catch(() => {});
+  }, [token.tx_hash, isAntibotActive, deployTimestamp]);
 
   const tweetUrl = getTweetUrl(token);
   const castUrl = getCastUrl(token);
@@ -187,6 +237,49 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
             </a>
           )}
         </div>
+
+        {/* Antibot Fee Timer - uses on-chain block timestamp */}
+        {(() => {
+          if (!deployTimestamp) return null;
+          const elapsed = (Date.now() - deployTimestamp) / 1000;
+          const fee = getAntibotFee(elapsed);
+          const color = getAntibotColor(fee);
+          const remaining = Math.max(0, Math.ceil(15 - elapsed));
+          const progress = Math.min(100, (elapsed / 15) * 100);
+          void antibotTick;
+
+          if (elapsed > 20) return null;
+
+          return (
+            <div className="mt-3 p-3 border rounded" style={{ borderColor: `${color}30`, background: `${color}08` }}>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-xs text-gray-400">ANTIBOT FEE</span>
+                  {remaining > 0 && (
+                    <span className="font-mono text-xs text-gray-500">{remaining}s left</span>
+                  )}
+                </div>
+                <span className="font-mono text-lg font-bold" style={{ color }}>
+                  {fee.toFixed(1)}%
+                </span>
+              </div>
+              <div className="w-full h-2 bg-[#0d1117] rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-1000"
+                  style={{
+                    width: `${progress}%`,
+                    background: `linear-gradient(90deg, #ff4444, #ff8800, #ffcc00, #00ff88)`,
+                  }}
+                />
+              </div>
+              {remaining <= 0 && (
+                <div className="mt-1 text-center">
+                  <span className="font-mono text-xs text-[#00ff88]">SAFE TO BUY</span>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Buy button */}
         <a

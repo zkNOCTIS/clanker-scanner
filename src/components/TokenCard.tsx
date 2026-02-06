@@ -18,24 +18,18 @@ function formatTimeAgo(dateStr: string): string {
   return `${Math.floor(diffHr / 24)}d ago`;
 }
 
-// Bankr antibot fee decay curve (non-linear, from Sniper Auction V2)
-const ANTIBOT_FEE_CURVE: [number, number][] = [
-  [0, 66.68], [1, 58.62], [2, 51.12], [3, 44.17],
-  [5, 31.95], [7, 21.95], [10, 11.11], [12, 6.67], [15, 4.17],
-];
+// Bankr antibot fee - quadratic (parabolic) decay from ClankerSniperAuctionV2.sol
+// fee = endingFee + feeRange * ((timeToDecay - elapsed) / timeToDecay)²
+const STARTING_FEE = 66.68;
+const ENDING_FEE = 4.17;
+const FEE_RANGE = STARTING_FEE - ENDING_FEE;
+const DECAY_SECONDS = 15;
 
 function getAntibotFee(elapsedSeconds: number): number {
-  if (elapsedSeconds <= 0) return ANTIBOT_FEE_CURVE[0][1];
-  if (elapsedSeconds >= 15) return ANTIBOT_FEE_CURVE[ANTIBOT_FEE_CURVE.length - 1][1];
-  for (let i = 0; i < ANTIBOT_FEE_CURVE.length - 1; i++) {
-    const [t1, f1] = ANTIBOT_FEE_CURVE[i];
-    const [t2, f2] = ANTIBOT_FEE_CURVE[i + 1];
-    if (elapsedSeconds >= t1 && elapsedSeconds <= t2) {
-      const ratio = (elapsedSeconds - t1) / (t2 - t1);
-      return f1 + (f2 - f1) * ratio;
-    }
-  }
-  return ANTIBOT_FEE_CURVE[ANTIBOT_FEE_CURVE.length - 1][1];
+  if (elapsedSeconds <= 0) return STARTING_FEE;
+  if (elapsedSeconds >= DECAY_SECONDS) return ENDING_FEE;
+  const timeRemaining = (DECAY_SECONDS - elapsedSeconds) / DECAY_SECONDS;
+  return ENDING_FEE + FEE_RANGE * timeRemaining * timeRemaining;
 }
 
 function getAntibotColor(fee: number): string {
@@ -237,7 +231,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
           if (elapsed > 20) return null;
 
           return (
-            <div className="mt-3 p-3 border rounded" style={{ borderColor: `${color}30`, background: `${color}08` }}>
+            <div className="mt-3 p-3 border border-[#30363d] rounded">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-xs text-gray-400">ANTIBOT FEE</span>
@@ -258,11 +252,6 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
                   }}
                 />
               </div>
-              {remaining <= 0 && (
-                <div className="mt-1 text-center">
-                  <span className="font-mono text-xs text-[#00ff88]">SAFE TO BUY</span>
-                </div>
-              )}
             </div>
           );
         })()}

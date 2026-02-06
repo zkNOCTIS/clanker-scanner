@@ -39,10 +39,18 @@ function getAntibotColor(fee: number): string {
   return "#00ff88";
 }
 
+// Fee threshold where BasedBot accepts buys (~30%)
+const BASEDBOT_FEE_THRESHOLD = 30;
+
+// Open BasedBot at ~8.6s after deploy → buy lands on-chain ~10s (optimal entry from data analysis)
+const SAFE_BUY_ELAPSED = 8.6;
+
 export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = false }: { token: ClankerToken; isLatest?: boolean; onTweetDeleted?: () => void; shouldFetchStats?: boolean }) {
   const [copied, setCopied] = useState(false);
   const [, setTick] = useState(0);
   const [antibotTick, setAntibotTick] = useState(0);
+  const [buyPending, setBuyPending] = useState(false);
+  const [buyCountdown, setBuyCountdown] = useState<number | null>(null);
   const [twitterStats, setTwitterStats] = useState<{
     replied_to_username: string;
     replied_to_followers: number;
@@ -255,16 +263,66 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
           );
         })()}
 
-        {/* Buy button */}
-        <a
-          href={`tg://resolve?domain=based_vip_eu_bot&start=b_${token.contract_address}`}
-          className="mt-3 flex items-center justify-center gap-2 w-full py-2.5 bg-[#26A5E4]/10 border border-[#26A5E4]/30 rounded text-[#26A5E4] font-semibold text-sm hover:bg-[#26A5E4]/20 transition-colors"
-        >
-          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
-          </svg>
-          Buy on BasedBot
-        </a>
+        {/* Buy button - auto-opens BasedBot when antibot fee drops below 30% */}
+        {(() => {
+          const basedBotUrl = `tg://resolve?domain=based_vip_eu_bot&start=b_${token.contract_address}`;
+          const elapsed = (Date.now() - new Date(token.created_at).getTime()) / 1000;
+          const fee = getAntibotFee(elapsed);
+          const isSafe = fee < BASEDBOT_FEE_THRESHOLD || elapsed >= DECAY_SECONDS;
+          void antibotTick;
+
+          const handleBuy = () => {
+            if (isSafe) {
+              window.location.href = basedBotUrl;
+              return;
+            }
+            if (buyPending) return;
+
+            setBuyPending(true);
+            const msUntilSafe = Math.max(0, (SAFE_BUY_ELAPSED - elapsed) * 1000);
+            setBuyCountdown(Math.ceil(msUntilSafe / 1000));
+
+            const countdownInterval = setInterval(() => {
+              setBuyCountdown(prev => {
+                if (prev === null || prev <= 1) {
+                  clearInterval(countdownInterval);
+                  return 0;
+                }
+                return prev - 1;
+              });
+            }, 1000);
+
+            setTimeout(() => {
+              clearInterval(countdownInterval);
+              setBuyPending(false);
+              setBuyCountdown(null);
+              window.location.href = basedBotUrl;
+            }, msUntilSafe);
+          };
+
+          return (
+            <button
+              onClick={handleBuy}
+              className={`mt-3 flex items-center justify-center gap-2 w-full py-2.5 rounded font-semibold text-sm transition-colors ${
+                buyPending
+                  ? "bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 cursor-wait"
+                  : isSafe
+                    ? "bg-[#26A5E4]/10 border border-[#26A5E4]/30 text-[#26A5E4] hover:bg-[#26A5E4]/20"
+                    : "bg-red-500/10 border border-red-500/30 text-red-400"
+              }`}
+            >
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+              </svg>
+              {buyPending && buyCountdown !== null
+                ? `Opening in ${buyCountdown}s...`
+                : isSafe
+                  ? "Buy on BasedBot"
+                  : `Wait... ${fee.toFixed(0)}% fee`
+              }
+            </button>
+          );
+        })()}
 
         {/* Social Links - dedupe by URL */}
         {(() => {

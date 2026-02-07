@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import { ClankerToken, hasRealSocialContext } from "@/types";
 import { TokenCard } from "@/components/TokenCard";
 
@@ -15,6 +16,8 @@ export default function Home() {
   const newTokensRef = useRef<Set<string>>(new Set()); // Track tokens that arrived after initial load
   const [, setTick] = useState(0);
   const [searchCA, setSearchCA] = useState("");
+  const searchParams = useSearchParams();
+  const botDomain = searchParams.get("bot") || "based_vip_eu_bot";
 
   // Remove token when tweet is detected as deleted
   const handleTweetDeleted = (contractAddress: string) => {
@@ -191,6 +194,7 @@ export default function Home() {
                       isLatest={index === 0}
                       onTweetDeleted={() => handleTweetDeleted(token.contract_address)}
                       shouldFetchStats={newTokensRef.current.has(token.contract_address)}
+                      botDomain={botDomain}
                     />
                   </div>
                 ))}

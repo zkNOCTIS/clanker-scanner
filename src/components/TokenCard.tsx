@@ -45,7 +45,7 @@ const BASEDBOT_FEE_THRESHOLD = 30;
 // Open BasedBot at ~8.6s after deploy → buy lands on-chain ~10s (optimal entry from data analysis)
 const SAFE_BUY_ELAPSED = 8.6;
 
-export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = false }: { token: ClankerToken; isLatest?: boolean; onTweetDeleted?: () => void; shouldFetchStats?: boolean }) {
+export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = false, botDomain = "based_vip_eu_bot" }: { token: ClankerToken; isLatest?: boolean; onTweetDeleted?: () => void; shouldFetchStats?: boolean; botDomain?: string }) {
   const [copied, setCopied] = useState(false);
   const [, setTick] = useState(0);
   const [antibotTick, setAntibotTick] = useState(0);
@@ -265,7 +265,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
 
         {/* Buy button - auto-opens BasedBot when antibot fee drops below 30% */}
         {(() => {
-          const basedBotUrl = `tg://resolve?domain=based_vip_eu_bot&start=b_${token.contract_address}`;
+          const basedBotUrl = `tg://resolve?domain=${botDomain}&start=b_${token.contract_address}`;
           const elapsed = (Date.now() - new Date(token.created_at).getTime()) / 1000;
           const fee = getAntibotFee(elapsed);
           const isSafe = fee < BASEDBOT_FEE_THRESHOLD || elapsed >= DECAY_SECONDS;

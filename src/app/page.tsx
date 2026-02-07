@@ -1,11 +1,19 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { Suspense, useEffect, useState, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { ClankerToken, hasRealSocialContext } from "@/types";
 import { TokenCard } from "@/components/TokenCard";
 
 export default function Home() {
+  return (
+    <Suspense>
+      <HomeContent />
+    </Suspense>
+  );
+}
+
+function HomeContent() {
   const [tokens, setTokens] = useState<ClankerToken[]>([]);
   const [scanning, setScanning] = useState(true);
   const [error, setError] = useState<string | null>(null);

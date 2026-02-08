@@ -9,7 +9,8 @@ const redis = new Redis({
 
 const REDIS_KEY = "clanker:tokens:list";
 const POLL_INTERVAL_MS = 50;
-const MAX_STREAM_DURATION_MS = 25000;
+const MAX_STREAM_DURATION_MS = 55000; // 55s (Vercel edge max ~60s)
+const HEARTBEAT_INTERVAL_MS = 10000; // heartbeat every 10s, not every poll
 
 export async function GET(req: Request) {
   const lastEventId = req.headers.get("Last-Event-ID");
@@ -20,6 +21,7 @@ export async function GET(req: Request) {
   const stream = new ReadableStream({
     async start(controller) {
       const startTime = Date.now();
+      let lastHeartbeat = Date.now();
       const lastSeenAddresses = new Set(knownAddresses);
 
       // Send initial batch on first connect
@@ -40,10 +42,11 @@ export async function GET(req: Request) {
         }
       }
 
-      // Poll loop
+      // Poll loop - only check head of list for new tokens
       while (Date.now() - startTime < MAX_STREAM_DURATION_MS) {
         try {
-          const rawPoll = (await redis.lrange(REDIS_KEY, 0, 49)) || [];
+          // Only read first 5 items - new tokens are always at the head
+          const rawPoll = (await redis.lrange(REDIS_KEY, 0, 4)) || [];
           const tokens = rawPoll as any[];
           const newTokens = tokens.filter(
             (t: any) => !lastSeenAddresses.has(t.contract_address)
@@ -58,8 +61,11 @@ export async function GET(req: Request) {
             }
           }
 
-          // Heartbeat to keep connection alive
-          controller.enqueue(encoder.encode(`:heartbeat\n\n`));
+          // Heartbeat only every 10s to keep alive without flooding
+          if (Date.now() - lastHeartbeat > HEARTBEAT_INTERVAL_MS) {
+            controller.enqueue(encoder.encode(`:heartbeat\n\n`));
+            lastHeartbeat = Date.now();
+          }
         } catch {
           // Transient Redis error - continue polling
         }

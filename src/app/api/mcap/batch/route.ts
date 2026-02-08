@@ -12,6 +12,7 @@ const RPC_URLS = [
   "http://148.251.138.249:8545",
 ];
 
+const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11";
 const STATEVIEW = "0xA3c0c9b65baD0b08107Aa264b0f3dB444b867A71";
 const HOOK = "0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC";
 const WETH = "0x4200000000000000000000000000000000000006";
@@ -19,36 +20,43 @@ const CHAINLINK_ETH_USD = "0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70";
 const DYNAMIC_FEE = 0x800000;
 const SUPPLY = 100_000_000_000n;
 
-const STATEVIEW_ABI = [
+const MULTICALL3_ABI = [
   {
-    inputs: [{ type: "bytes32", name: "poolId" }],
-    name: "getSlot0",
+    inputs: [
+      {
+        components: [
+          { name: "target", type: "address" },
+          { name: "allowFailure", type: "bool" },
+          { name: "callData", type: "bytes" },
+        ],
+        name: "calls",
+        type: "tuple[]",
+      },
+    ],
+    name: "aggregate3",
     outputs: [
-      { type: "uint160" },
-      { type: "int24" },
-      { type: "uint24" },
-      { type: "uint24" },
+      {
+        components: [
+          { name: "success", type: "bool" },
+          { name: "returnData", type: "bytes" },
+        ],
+        type: "tuple[]",
+      },
     ],
     stateMutability: "view",
     type: "function",
   },
 ];
 
-const CHAINLINK_ABI = [
-  {
-    inputs: [],
-    name: "latestRoundData",
-    outputs: [
-      { type: "uint80" },
-      { type: "int256" },
-      { type: "uint256" },
-      { type: "uint256" },
-      { type: "uint80" },
-    ],
-    stateMutability: "view",
-    type: "function",
-  },
-];
+const stateviewIface = new ethers.Interface([
+  "function getSlot0(bytes32 poolId) view returns (uint160, int24, uint24, uint24)",
+]);
+
+const chainlinkIface = new ethers.Interface([
+  "function latestRoundData() view returns (uint80, int256, uint256, uint256, uint80)",
+]);
+
+const abiCoder = ethers.AbiCoder.defaultAbiCoder();
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return Promise.race([
@@ -59,12 +67,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   ]);
 }
 
-// Calculate mcap for a single token using a specific provider (reuse provider for batch)
-async function calculateMcapWithProvider(
-  provider: ethers.JsonRpcProvider,
-  tokenAddr: string,
-  ethPriceUsd: number
-): Promise<number> {
+function computePoolId(tokenAddr: string): string {
   const wethAddr = ethers.getAddress(WETH);
   const token = ethers.getAddress(tokenAddr);
 
@@ -72,30 +75,30 @@ async function calculateMcapWithProvider(
     BigInt(a) < BigInt(b) ? -1 : 1
   );
 
-  const abiCoder = ethers.AbiCoder.defaultAbiCoder();
   const encoded = abiCoder.encode(
     ["address", "address", "uint24", "int24", "address"],
     [token0, token1, DYNAMIC_FEE, 200, ethers.getAddress(HOOK)]
   );
-  const poolId = ethers.keccak256(encoded);
+  return ethers.keccak256(encoded);
+}
 
-  const stateViewContract = new ethers.Contract(
-    ethers.getAddress(STATEVIEW),
-    STATEVIEW_ABI,
-    provider
+function sqrtPriceToMcap(
+  sqrtPriceX96: bigint,
+  tokenAddr: string,
+  ethPriceUsd: number
+): number | null {
+  if (sqrtPriceX96 === 0n) return null;
+
+  const wethAddr = ethers.getAddress(WETH);
+  const token = ethers.getAddress(tokenAddr);
+  const [token0] = [wethAddr, token].sort((a, b) =>
+    BigInt(a) < BigInt(b) ? -1 : 1
   );
-
-  const poolData = await stateViewContract.getSlot0(poolId);
-  const sqrtPriceX96 = BigInt(poolData[0]);
-
-  if (sqrtPriceX96 === 0n) {
-    throw new Error("Pool not initialized");
-  }
 
   const Q96 = 2n ** 96n;
   const ONE_ETH = 10n ** 18n;
 
-  let priceWei = ((Q96 * ONE_ETH) / sqrtPriceX96) * Q96 / sqrtPriceX96;
+  const priceWei = ((Q96 * ONE_ETH) / sqrtPriceX96) * Q96 / sqrtPriceX96;
 
   let finalPriceWei: bigint;
   if (token0 === wethAddr) {
@@ -105,76 +108,105 @@ async function calculateMcapWithProvider(
   }
 
   const mcapInEth = (Number(finalPriceWei) * Number(SUPPLY)) / 10 ** 18;
-  const mcapUsd = mcapInEth * ethPriceUsd;
-
-  return Math.floor(mcapUsd);
+  return Math.floor(mcapInEth * ethPriceUsd);
 }
 
-// Try to get mcap for a token using fastest RPC
-async function getMcapForToken(
-  providers: ethers.JsonRpcProvider[],
-  tokenAddr: string,
-  ethPriceUsd: number
-): Promise<number | null> {
-  const results = await Promise.allSettled(
-    providers.map((provider) =>
-      withTimeout(calculateMcapWithProvider(provider, tokenAddr, ethPriceUsd), 5000)
-    )
-  );
+// Single multicall: ETH price + all getSlot0 calls in one RPC request
+async function multicallBatch(
+  provider: ethers.JsonRpcProvider,
+  addresses: string[]
+): Promise<{ ethPrice: number; mcaps: Record<string, number | null> }> {
+  const multicall = new ethers.Contract(MULTICALL3, MULTICALL3_ABI, provider);
 
-  const successfulResult = results.find(
-    (result): result is PromiseFulfilledResult<number> =>
-      result.status === "fulfilled"
-  );
+  // Build calls array: [chainlink, slot0_0, slot0_1, ..., slot0_n]
+  const calls: { target: string; allowFailure: boolean; callData: string }[] = [];
 
-  return successfulResult ? successfulResult.value : null;
+  // Call 0: Chainlink ETH/USD price
+  calls.push({
+    target: ethers.getAddress(CHAINLINK_ETH_USD),
+    allowFailure: false,
+    callData: chainlinkIface.encodeFunctionData("latestRoundData"),
+  });
+
+  // Calls 1..N: getSlot0 for each token
+  const poolIds = addresses.map((addr) => computePoolId(addr));
+  for (const poolId of poolIds) {
+    calls.push({
+      target: ethers.getAddress(STATEVIEW),
+      allowFailure: true,
+      callData: stateviewIface.encodeFunctionData("getSlot0", [poolId]),
+    });
+  }
+
+  const results = await multicall.aggregate3(calls);
+
+  // Parse ETH price (call 0)
+  const ethPriceData = chainlinkIface.decodeFunctionResult(
+    "latestRoundData",
+    results[0].returnData
+  );
+  const ethPrice = Number(ethPriceData[1]) / 10 ** 8;
+
+  // Parse each token's slot0 (calls 1..N)
+  const mcaps: Record<string, number | null> = {};
+  for (let i = 0; i < addresses.length; i++) {
+    const result = results[i + 1]; // offset by 1 for chainlink call
+    const addr = addresses[i].toLowerCase();
+
+    if (!result.success) {
+      mcaps[addr] = null;
+      continue;
+    }
+
+    try {
+      const decoded = stateviewIface.decodeFunctionResult(
+        "getSlot0",
+        result.returnData
+      );
+      const sqrtPriceX96 = BigInt(decoded[0]);
+      mcaps[addr] = sqrtPriceToMcap(sqrtPriceX96, addresses[i], ethPrice);
+    } catch {
+      mcaps[addr] = null;
+    }
+  }
+
+  return { ethPrice, mcaps };
 }
 
-async function handleBatch(addresses: string[]): Promise<Record<string, number | null>> {
-  // Limit to 100 tokens max
+async function handleBatch(
+  addresses: string[]
+): Promise<Record<string, number | null>> {
   const limitedAddresses = addresses.slice(0, 100);
 
-  // Create providers once for reuse
   const providers = RPC_URLS.map(
     (url) =>
       new ethers.JsonRpcProvider(url, undefined, { staticNetwork: true })
   );
 
-  // Get ETH price once - race all providers in parallel for speed
-  const ethPriceResults = await Promise.allSettled(
-    providers.map(async (provider) => {
-      const chainlinkContract = new ethers.Contract(
-        ethers.getAddress(CHAINLINK_ETH_USD),
-        CHAINLINK_ABI,
-        provider
-      );
-      const roundData = await withTimeout(chainlinkContract.latestRoundData(), 3000);
-      return Number(roundData[1]) / 10 ** 8;
-    })
+  // Race all providers — first successful multicall wins
+  const results = await Promise.allSettled(
+    providers.map((provider) =>
+      withTimeout(multicallBatch(provider, limitedAddresses), 5000)
+    )
   );
-  const successfulPrice = ethPriceResults.find(
-    (r): r is PromiseFulfilledResult<number> => r.status === 'fulfilled'
-  );
-  const ethPriceUsd = successfulPrice ? successfulPrice.value : 0;
 
-  if (ethPriceUsd === 0) {
-    console.error("Failed to get ETH price from all providers");
-    return Object.fromEntries(limitedAddresses.map((addr) => [addr.toLowerCase(), null]));
+  const winner = results.find(
+    (r): r is PromiseFulfilledResult<{ ethPrice: number; mcaps: Record<string, number | null> }> =>
+      r.status === "fulfilled"
+  );
+
+  if (!winner) {
+    console.error("[Batch] All providers failed");
+    return Object.fromEntries(
+      limitedAddresses.map((addr) => [addr.toLowerCase(), null])
+    );
   }
 
-  console.log(`[Batch] ETH price: $${ethPriceUsd}, fetching ${limitedAddresses.length} tokens`);
-
-  // Fetch all mcaps in parallel
-  const results = await Promise.all(
-    limitedAddresses.map(async (addr) => {
-      const mcap = await getMcapForToken(providers, addr, ethPriceUsd);
-      return [addr.toLowerCase(), mcap] as const;
-    })
-  );
-
-  const mcaps = Object.fromEntries(results);
+  const { ethPrice, mcaps } = winner.value;
   const successCount = Object.values(mcaps).filter((v) => v !== null).length;
-  console.log(`[Batch] Completed: ${successCount}/${limitedAddresses.length} successful`);
+  console.log(
+    `[Batch] ETH $${ethPrice.toFixed(0)} | ${successCount}/${limitedAddresses.length} mcaps | 1 multicall`
+  );
 
   return mcaps;
 }

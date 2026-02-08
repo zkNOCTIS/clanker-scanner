@@ -181,12 +181,11 @@ export function hasRealSocialContext(token: ClankerToken): boolean {
   const socialId = token.social_context?.id || "";
   if (getTweetId(messageId) || getTweetId(socialId)) return true;
 
-  // Farcaster tokens with valid cast_hash - allow them through
-  // Railway listener already filters for X verification or whitelisted FIDs
-  if (castHash && castHash.startsWith("0x")) return true;
-
-  // Farcaster tokens with verified X username (Bankr deploys where messageId isn't a hash)
-  if (token.social_context?.xUsername) return true;
+  // Farcaster tokens - only show if they have a verified X username to display
+  if ((castHash && castHash.startsWith("0x")) || token.social_context?.xUsername) {
+    if (token.social_context?.xUsername) return true;
+    return false;
+  }
 
   // Tokens with 2+ UNIQUE social links (different URLs)
   // Filters out scams where all links point to same URL

@@ -137,8 +137,11 @@ function HomeContent() {
 
     const connect = () => {
       if (destroyed) return;
-      const wsUrl = process.env.NEXT_PUBLIC_WS_URL;
+      let wsUrl = process.env.NEXT_PUBLIC_WS_URL;
       if (!wsUrl) { setError("WS URL not configured"); return; }
+      if (!wsUrl.startsWith("ws://") && !wsUrl.startsWith("wss://")) {
+        wsUrl = `wss://${wsUrl}`;
+      }
 
       ws = new WebSocket(wsUrl);
 

@@ -121,9 +121,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
       }
     };
 
-    // Fetch stats after component mounts
-    const timeout = setTimeout(extractAndFetchStats, 1000);
-    return () => clearTimeout(timeout);
+    extractAndFetchStats();
   }, [tweetUrl, twitterStats]);
 
   const copyCA = () => {

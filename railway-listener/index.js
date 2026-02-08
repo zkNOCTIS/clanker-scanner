@@ -93,15 +93,15 @@ async function fetchTokenDataFromClanker(contractAddress) {
   }
 }
 
-// Upstash Redis REST helper
-async function redisCommand(command) {
-  const res = await fetch(`${UPSTASH_REDIS_REST_URL}`, {
+// Upstash Redis REST helper - pipelined for speed
+async function redisPipeline(commands) {
+  const res = await fetch(`${UPSTASH_REDIS_REST_URL}/pipeline`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}`,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify(command)
+    body: JSON.stringify(commands)
   });
   if (!res.ok) throw new Error(`Redis ${res.status}`);
   return res.json();
@@ -111,11 +111,13 @@ async function postToRedis(tokenData) {
   try {
     tokenData.received_at = new Date().toISOString();
 
-    // LPUSH + LTRIM: 1 atomic prepend, no read-modify-write cycle
-    await redisCommand(["LPUSH", REDIS_KEY, JSON.stringify(tokenData)]);
-    await redisCommand(["LTRIM", REDIS_KEY, "0", String(MAX_TOKENS - 1)]);
+    // Single HTTP request: LPUSH + LTRIM pipelined
+    await redisPipeline([
+      ["LPUSH", REDIS_KEY, JSON.stringify(tokenData)],
+      ["LTRIM", REDIS_KEY, "0", String(MAX_TOKENS - 1)]
+    ]);
 
-    console.log(`✅ ${tokenData.symbol} → Redis direct`);
+    console.log(`✅ ${tokenData.symbol} → Redis (${Date.now() - new Date(tokenData.received_at).getTime()}ms)`);
   } catch (error) {
     console.error('❌ Redis write failed:', error.message);
   }
@@ -177,11 +179,11 @@ async function parseTransactionData(txHash) {
     try {
       const tx = await provider.getTransaction(txHash);
       if (tx) return parseCalldataFromTx(tx);
-      console.log(`   [RETRY ${attempt + 1}/3] getTransaction returned null, waiting 200ms...`);
-      await new Promise(r => setTimeout(r, 200));
+      console.log(`   [RETRY ${attempt + 1}/3] tx null, waiting 50ms...`);
+      await new Promise(r => setTimeout(r, 50));
     } catch (error) {
       console.error(`   [RETRY ${attempt + 1}/3] Error: ${error.message}`);
-      await new Promise(r => setTimeout(r, 200));
+      await new Promise(r => setTimeout(r, 50));
     }
   }
   console.error('   ❌ Failed to fetch tx after 3 attempts');
@@ -251,12 +253,7 @@ async function checkFarcasterUserHasX(fid) {
 }
 
 async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
-  console.log('\n🚀 NEW TOKEN DETECTED!');
-  console.log(`Address: ${tokenAddress}`);
-  console.log(`Name: ${name}`);
-  console.log(`Symbol: ${symbol}`);
-  console.log(`Tx: ${txHash}`);
-  console.log(`Block: ${event.blockNumber}`);
+  console.log(`\n🚀 ${symbol} | ${tokenAddress.slice(0,10)}... | Block ${event.blockNumber}`);
 
   // Parse transaction data to get social context and deployer address
   const txData = await parseTransactionData(txHash);
@@ -272,45 +269,24 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
     return;
   }
 
-  console.log(`✅ Found deploy from whitelisted deployer: ${txData.deployer}`);
-
   // Determine platform: Twitter or Farcaster
   const hasTwitter = !!txData.tweetUrl;
   const hasFarcasterFid = !!txData.id && /^\d+$/.test(txData.id); // FID is numeric
 
   if (hasTwitter) {
     // Twitter/X deploy - proceed immediately
-    console.log(`   Platform: X/Twitter`);
-    console.log(`   Tweet: ${txData.tweetUrl}`);
-    console.log(`   Image: ${txData.imageUrl || 'N/A'}`);
   } else if (hasFarcasterFid) {
-    // Farcaster deploy - verify X account linkage
-    console.log(`   Platform: Farcaster`);
-    console.log(`   FID: ${txData.id}`);
-    console.log(`   Cast: ${txData.messageId || 'N/A'}`);
 
-    // Check if FID is blacklisted
-    if (BLACKLISTED_FARCASTER_FIDS.has(txData.id)) {
-      console.log(`🚫 Farcaster FID ${txData.id} is blacklisted - skipping`);
-      return;
-    }
+    if (BLACKLISTED_FARCASTER_FIDS.has(txData.id)) return;
 
-    // Check if FID is whitelisted (bypass X account requirement)
     if (WHITELISTED_FARCASTER_FIDS.has(txData.id)) {
-      console.log(`✅ Farcaster FID ${txData.id} is whitelisted - proceeding without X verification`);
+      // Whitelisted FID - bypass X check
     } else {
       const xVerification = await checkFarcasterUserHasX(txData.id);
-
-      if (!xVerification.hasLinkedX) {
-        console.log('⚠️  Farcaster user has NO linked X account, skipping');
-        return;
-      }
-
-      console.log(`✅ Farcaster user has linked X account (@${xVerification.xUsername}) - proceeding`);
-      txData.xUsername = xVerification.xUsername; // Add X username to txData
+      if (!xVerification.hasLinkedX) return;
+      txData.xUsername = xVerification.xUsername;
     }
   } else {
-    console.log('⚠️  No Twitter URL or Farcaster FID found, skipping');
     return;
   }
 
@@ -406,49 +382,32 @@ async function startListener() {
 
     provider.on(filter, async (log) => {
       const eventStart = Date.now();
-      console.log('\n🚀 NEW EVENT DETECTED!');
-      console.log('Block:', log.blockNumber);
-      console.log('Tx:', log.transactionHash);
 
       try {
-        if (log.topics.length < 2) {
-          console.log('⚠️  Event has no topics, skipping');
-          return;
-        }
+        if (log.topics.length < 2) return;
 
         const tokenAddress = '0x' + log.topics[1].slice(26);
-        console.log('Token address:', tokenAddress);
 
-        // Optimization A: Decode name/symbol from log.data (no RPC calls)
+        // ABI decode name/symbol from log.data (no RPC)
         let name, symbol;
         try {
-          const abiCoder = ethers.AbiCoder.defaultAbiCoder();
-          const decoded = abiCoder.decode(["string", "string"], log.data);
+          const decoded = ethers.AbiCoder.defaultAbiCoder().decode(["string", "string"], log.data);
           name = decoded[0];
           symbol = decoded[1];
-          console.log(`   [ABI DECODE] name="${name}" symbol="${symbol}" (0ms)`);
-        } catch (decodeErr) {
-          // Fallback to RPC if ABI decode fails
-          console.log(`   [ABI DECODE FAILED] Falling back to RPC: ${decodeErr.message}`);
+        } catch {
           const tokenContract = new ethers.Contract(
             tokenAddress,
             ['function name() view returns (string)', 'function symbol() view returns (string)'],
             provider
           );
-          [name, symbol] = await Promise.all([
-            tokenContract.name(),
-            tokenContract.symbol()
-          ]);
+          [name, symbol] = await Promise.all([tokenContract.name(), tokenContract.symbol()]);
         }
-
-        console.log('Token name:', name);
-        console.log('Token symbol:', symbol);
 
         await handleTokenCreated(tokenAddress, name, symbol, log.transactionHash, { blockNumber: log.blockNumber });
 
-        console.log(`   [TIMING] Total: ${Date.now() - eventStart}ms`);
+        console.log(`   ⏱ ${Date.now() - eventStart}ms total`);
       } catch (error) {
-        console.error('❌ Error processing event:', error.message);
+        console.error('❌ Event error:', error.message);
       }
     });
 

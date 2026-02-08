@@ -186,18 +186,18 @@ function parseCalldataFromTx(tx) {
 }
 
 async function parseTransactionData(txHash) {
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const tx = await provider.getTransaction(txHash);
       if (tx) return parseCalldataFromTx(tx);
-      console.log(`   [RETRY ${attempt + 1}/3] tx null, waiting 50ms...`);
-      await new Promise(r => setTimeout(r, 50));
+      console.log(`   [RETRY ${attempt + 1}/2] tx null, waiting 30ms...`);
+      await new Promise(r => setTimeout(r, 30));
     } catch (error) {
-      console.error(`   [RETRY ${attempt + 1}/3] Error: ${error.message}`);
-      await new Promise(r => setTimeout(r, 50));
+      console.error(`   [RETRY ${attempt + 1}/2] Error: ${error.message}`);
+      await new Promise(r => setTimeout(r, 30));
     }
   }
-  console.error('   ❌ Failed to fetch tx after 3 attempts');
+  console.error('   ❌ Failed to fetch tx after 2 attempts');
   return null;
 }
 
@@ -264,19 +264,16 @@ async function checkFarcasterUserHasX(fid) {
 }
 
 async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
+  const t0 = Date.now();
   console.log(`\n🚀 ${symbol} | ${tokenAddress.slice(0,10)}... | Block ${event.blockNumber}`);
 
-  // Fetch tx data + block timestamp in parallel (no added latency)
-  const [txData, block] = await Promise.all([
-    parseTransactionData(txHash),
-    provider.getBlock(event.blockNumber).catch(() => null)
-  ]);
+  // Use server timestamp — saves ~300-500ms vs getBlock() RPC call
+  // On Base L2 (1s blocks), event arrives within ~1-2s of block time, close enough for antibot timer
+  const serverNow = new Date().toISOString();
 
-  const blockTimestamp = block?.timestamp || null;
-  if (blockTimestamp) {
-    const rpcDelay = Math.round(Date.now() / 1000 - blockTimestamp);
-    console.log(`   📊 RPC delay: ${rpcDelay}s (block ${event.blockNumber})`);
-  }
+  const txData = await parseTransactionData(txHash);
+  const t1 = Date.now();
+  console.log(`   ⏱ getTx: ${t1 - t0}ms`);
 
   if (!txData) {
     console.log('⚠️  Could not parse transaction data, skipping');
@@ -302,7 +299,9 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
     if (WHITELISTED_FARCASTER_FIDS.has(txData.id)) {
       // Whitelisted FID - bypass X check
     } else {
+      const neynarStart = Date.now();
       const xVerification = await checkFarcasterUserHasX(txData.id);
+      console.log(`   ⏱ neynar: ${Date.now() - neynarStart}ms ${neynarCache.has(txData.id) ? '[CACHED]' : '[API]'}`);
       if (!xVerification.hasLinkedX) return;
       txData.xUsername = xVerification.xUsername;
     }
@@ -322,7 +321,7 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
     image_url: txData.imageUrl,
     description: txData.description || '',
     tx_hash: txHash,
-    created_at: blockTimestamp ? new Date(blockTimestamp * 1000).toISOString() : new Date().toISOString(),
+    created_at: serverNow,
     creator_address: null,
     msg_sender: txData.deployer || null,
     twitter_link: hasTwitter ? txData.tweetUrl : null,

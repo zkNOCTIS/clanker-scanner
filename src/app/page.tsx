@@ -49,14 +49,25 @@ function HomeContent() {
     return () => clearInterval(interval);
   }, []);
 
+  // Stable dependency: only re-run mcap effect when the actual list of addresses changes
+  // (not when recommendation flags update via setTokens)
+  const tokenAddresses = tokens.map(t => t.contract_address).join(",");
+
   // Fetch and update mcaps for sidebar - runs every 3 seconds using batch endpoint
   useEffect(() => {
-    if (tokens.length === 0) return;
+    if (!tokenAddresses) return;
+
+    const abortController = new AbortController();
+    let inFlight = false;
 
     const fetchAllMcaps = async () => {
+      if (inFlight) return; // Skip if previous fetch still pending - prevents connection pool exhaustion
+      inFlight = true;
+
       try {
-        const addresses = tokens.map((t) => t.contract_address).join(",");
-        const res = await fetch(`/api/mcap/batch?addresses=${addresses}`);
+        const res = await fetch(`/api/mcap/batch?addresses=${tokenAddresses}`, {
+          signal: abortController.signal,
+        });
         const data = await res.json();
         if (data.mcaps) {
           setMcaps((prev) => {
@@ -70,17 +81,23 @@ function HomeContent() {
           });
         }
       } catch (e) {
+        if (e instanceof DOMException && e.name === 'AbortError') return;
         console.error("[Scanner] Batch mcap fetch error:", e);
+      } finally {
+        inFlight = false;
       }
     };
 
-    // Fetch immediately when tokens change
+    // Fetch immediately when token list changes
     fetchAllMcaps();
 
     // Then fetch every 3 seconds to update mcaps
     const interval = setInterval(fetchAllMcaps, 3000);
-    return () => clearInterval(interval);
-  }, [tokens]);
+    return () => {
+      clearInterval(interval);
+      abortController.abort();
+    };
+  }, [tokenAddresses]);
 
   // SSE stream for real-time token updates (with polling fallback)
   useEffect(() => {

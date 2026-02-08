@@ -324,40 +324,57 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
   await postToRedis(tokenData);
 }
 
-// Pending transaction prefetch listener
+// Pending transaction prefetch listener - uses SEPARATE WebSocket to avoid
+// congesting the main connection with getTransaction calls for every pending tx
+let pendingProvider = null;
+
 function startPendingTxListener() {
-  console.log('⚡ Starting pending tx prefetch listener...');
+  const currentUrl = WSS_URLS[currentUrlIndex];
 
-  provider.on("pending", async (txHash) => {
-    try {
-      const tx = await provider.getTransaction(txHash);
-      if (!tx || !tx.to || tx.to.toLowerCase() !== CLANKER_FACTORY.toLowerCase()) return;
+  try {
+    pendingProvider = new ethers.WebSocketProvider(currentUrl);
+    console.log('⚡ Starting pending tx prefetch listener (separate connection)...');
 
-      console.log(`\n⚡ [PENDING] Clanker factory tx: ${txHash.slice(0, 10)}...`);
+    pendingProvider.on("pending", async (txHash) => {
+      try {
+        const tx = await pendingProvider.getTransaction(txHash);
+        if (!tx || !tx.to || tx.to.toLowerCase() !== CLANKER_FACTORY.toLowerCase()) return;
 
-      const parsedData = parseCalldataFromTx(tx);
-      if (!parsedData) return;
+        console.log(`\n⚡ [PENDING] Clanker factory tx: ${txHash.slice(0, 10)}...`);
 
-      // Quick whitelist check - no point caching non-whitelisted
-      if (!parsedData.deployer || !WHITELISTED_DEPLOYERS.has(parsedData.deployer)) return;
+        const parsedData = parseCalldataFromTx(tx);
+        if (!parsedData) return;
 
-      console.log(`⚡ [PENDING] Whitelisted deployer. Caching: ${parsedData.name || 'unknown'}`);
+        // Quick whitelist check - no point caching non-whitelisted
+        if (!parsedData.deployer || !WHITELISTED_DEPLOYERS.has(parsedData.deployer)) return;
 
-      // Pre-fire Neynar check for Farcaster deploys
-      const hasFarcasterFid = !!parsedData.id && /^\d+$/.test(parsedData.id);
-      if (hasFarcasterFid && !WHITELISTED_FARCASTER_FIDS.has(parsedData.id) && !BLACKLISTED_FARCASTER_FIDS.has(parsedData.id)) {
-        console.log(`⚡ [PENDING] Pre-fetching Neynar for FID ${parsedData.id}...`);
-        checkFarcasterUserHasX(parsedData.id).catch(() => {});
+        console.log(`⚡ [PENDING] Whitelisted deployer. Caching: ${parsedData.name || 'unknown'}`);
+
+        // Pre-fire Neynar check for Farcaster deploys
+        const hasFarcasterFid = !!parsedData.id && /^\d+$/.test(parsedData.id);
+        if (hasFarcasterFid && !WHITELISTED_FARCASTER_FIDS.has(parsedData.id) && !BLACKLISTED_FARCASTER_FIDS.has(parsedData.id)) {
+          console.log(`⚡ [PENDING] Pre-fetching Neynar for FID ${parsedData.id}...`);
+          checkFarcasterUserHasX(parsedData.id).catch(() => {});
+        }
+
+        // Store in prefetch cache
+        pendingTxCache.set(txHash, { parsedData, timestamp: Date.now() });
+      } catch {
+        // Silently ignore - most pending txs aren't for us
       }
+    });
 
-      // Store in prefetch cache
-      pendingTxCache.set(txHash, { parsedData, timestamp: Date.now() });
-    } catch {
-      // Silently ignore - most pending txs aren't for us
-    }
-  });
+    pendingProvider.websocket.on('error', () => {});
+    pendingProvider.websocket.on('close', () => {
+      console.log('⚡ Pending tx listener disconnected (non-critical)');
+      pendingProvider = null;
+    });
 
-  console.log('⚡ Pending tx prefetch listener active\n');
+    console.log('⚡ Pending tx prefetch listener active\n');
+  } catch (err) {
+    console.log(`⚡ Pending tx listener failed to start: ${err.message} (non-critical)`);
+    pendingProvider = null;
+  }
 }
 
 async function startListener() {
@@ -470,18 +487,16 @@ async function reconnect() {
 process.on('SIGINT', () => {
   console.log('\n👋 Shutting down gracefully...');
   console.log(`   Cache stats: pendingTx=${pendingTxCache.size}, neynar=${neynarCache.size}`);
-  if (provider) {
-    provider.destroy();
-  }
+  if (pendingProvider) pendingProvider.destroy();
+  if (provider) provider.destroy();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
   console.log('\n👋 Shutting down gracefully...');
   console.log(`   Cache stats: pendingTx=${pendingTxCache.size}, neynar=${neynarCache.size}`);
-  if (provider) {
-    provider.destroy();
-  }
+  if (pendingProvider) pendingProvider.destroy();
+  if (provider) provider.destroy();
   process.exit(0);
 });
 

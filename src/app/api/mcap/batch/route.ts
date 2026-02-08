@@ -140,22 +140,22 @@ async function handleBatch(addresses: string[]): Promise<Record<string, number |
       new ethers.JsonRpcProvider(url, undefined, { staticNetwork: true })
   );
 
-  // Get ETH price once (use first successful provider)
-  let ethPriceUsd = 0;
-  for (const provider of providers) {
-    try {
+  // Get ETH price once - race all providers in parallel for speed
+  const ethPriceResults = await Promise.allSettled(
+    providers.map(async (provider) => {
       const chainlinkContract = new ethers.Contract(
         ethers.getAddress(CHAINLINK_ETH_USD),
         CHAINLINK_ABI,
         provider
       );
       const roundData = await withTimeout(chainlinkContract.latestRoundData(), 3000);
-      ethPriceUsd = Number(roundData[1]) / 10 ** 8;
-      break;
-    } catch {
-      continue;
-    }
-  }
+      return Number(roundData[1]) / 10 ** 8;
+    })
+  );
+  const successfulPrice = ethPriceResults.find(
+    (r): r is PromiseFulfilledResult<number> => r.status === 'fulfilled'
+  );
+  const ethPriceUsd = successfulPrice ? successfulPrice.value : 0;
 
   if (ethPriceUsd === 0) {
     console.error("Failed to get ETH price from all providers");

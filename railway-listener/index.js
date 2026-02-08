@@ -173,13 +173,19 @@ async function parseTransactionData(txHash) {
   }
 
   console.log(`   [CACHE MISS] Fetching tx data for ${txHash.slice(0, 10)}...`);
-  try {
-    const tx = await provider.getTransaction(txHash);
-    return parseCalldataFromTx(tx);
-  } catch (error) {
-    console.error('Error parsing transaction data:', error.message);
-    return null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const tx = await provider.getTransaction(txHash);
+      if (tx) return parseCalldataFromTx(tx);
+      console.log(`   [RETRY ${attempt + 1}/3] getTransaction returned null, waiting 200ms...`);
+      await new Promise(r => setTimeout(r, 200));
+    } catch (error) {
+      console.error(`   [RETRY ${attempt + 1}/3] Error: ${error.message}`);
+      await new Promise(r => setTimeout(r, 200));
+    }
   }
+  console.error('   ❌ Failed to fetch tx after 3 attempts');
+  return null;
 }
 
 // Note: Twitter stats extraction moved to frontend where we can parse the embedded tweet HTML

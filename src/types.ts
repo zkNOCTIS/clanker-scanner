@@ -125,12 +125,6 @@ export function getCastUrl(token: ClankerToken): string | null {
   return null;
 }
 
-// Whitelisted deployer addresses (must match railway-listener)
-const WHITELISTED_DEPLOYERS = new Set([
-  "0x2112b8456ac07c15fa31ddf3bf713e77716ff3f9",
-  "0xd9acd656a5f1b519c9e76a2a6092265a74186e58",
-]);
-
 // Blocklisted Twitter usernames (spammers who delete tweets)
 const BLOCKED_USERNAMES: string[] = [
   "dront08",
@@ -193,10 +187,6 @@ export function hasRealSocialContext(token: ClankerToken): boolean {
 
   // Farcaster tokens with verified X username (Bankr deploys where messageId isn't a hash)
   if (token.social_context?.xUsername) return true;
-
-  // Whitelisted deployer - always show (InstaClaw, Basenames, terminal deploys etc.)
-  const deployer = token.msg_sender?.toLowerCase();
-  if (deployer && WHITELISTED_DEPLOYERS.has(deployer)) return true;
 
   // Tokens with 2+ UNIQUE social links (different URLs)
   // Filters out scams where all links point to same URL

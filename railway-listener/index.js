@@ -262,9 +262,8 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
       txData.xUsername = xVerification.xUsername; // Add X username to txData
     }
   } else {
-    // No Twitter or Farcaster - but still from whitelisted deployer (e.g. InstaClaw/Basenames/terminal)
-    console.log(`   Platform: ${txData.interface || 'Unknown'} / ${txData.platform || 'Unknown'}`);
-    console.log(`   Description: ${txData.description?.slice(0, 80) || 'N/A'}`);
+    console.log('⚠️  No Twitter URL or Farcaster FID found, skipping');
+    return;
   }
 
   // Build token data object matching Clanker API format

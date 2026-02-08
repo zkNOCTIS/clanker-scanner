@@ -13,11 +13,9 @@ const WSS_URLS = [
 const CLANKER_FACTORY = process.env.CLANKER_FACTORY; // Clanker factory contract address
 const NEYNAR_API_KEY = process.env.NEYNAR_API_KEY; // Neynar API for Farcaster verification
 
-// Upstash Redis (direct write, skips Vercel webhook hop)
-const UPSTASH_REDIS_REST_URL = process.env.UPSTASH_REDIS_REST_URL;
-const UPSTASH_REDIS_REST_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
-const REDIS_KEY = "clanker:tokens:list";
-const MAX_TOKENS = 100;
+// In-memory token buffer (replaces Redis - WebSocket push means no external store needed)
+const recentTokens = []; // Most recent first
+const MAX_TOKENS = 50;
 
 // Whitelist of legitimate deployer addresses (lowercase)
 const WHITELISTED_DEPLOYERS = new Set([
@@ -63,22 +61,13 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocketServer({ server });
 const wsClients = new Set();
 
-wss.on('connection', async (ws) => {
+wss.on('connection', (ws) => {
   wsClients.add(ws);
   console.log(`[WS] Client connected (${wsClients.size} total)`);
 
-  // Send recent tokens from Redis as init
-  try {
-    const res = await fetch(`${UPSTASH_REDIS_REST_URL}/lrange/${REDIS_KEY}/0/49`, {
-      headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` }
-    });
-    const data = await res.json();
-    if (data.result) {
-      const tokens = data.result.map(raw => typeof raw === 'string' ? JSON.parse(raw) : raw);
-      ws.send(JSON.stringify({ type: 'init', tokens }));
-    }
-  } catch (err) {
-    console.error('[WS] Init fetch error:', err.message);
+  // Send recent tokens from in-memory buffer
+  if (recentTokens.length > 0) {
+    ws.send(JSON.stringify({ type: 'init', tokens: recentTokens }));
   }
 
   ws.on('close', () => {
@@ -97,11 +86,15 @@ setInterval(() => {
 }, 30_000);
 
 function broadcastToken(tokenData) {
+  // Store in memory buffer
+  recentTokens.unshift(tokenData);
+  if (recentTokens.length > MAX_TOKENS) recentTokens.length = MAX_TOKENS;
+
   const msg = JSON.stringify({ type: 'token', token: tokenData });
   for (const ws of wsClients) {
     if (ws.readyState === 1) ws.send(msg);
   }
-  console.log(`[WS] Broadcasted ${tokenData.symbol} to ${wsClients.size} clients`);
+  console.log(`[WS] Broadcasted ${tokenData.symbol} to ${wsClients.size} clients (buffer: ${recentTokens.length})`);
 }
 
 server.listen(WS_PORT, () => {
@@ -149,35 +142,6 @@ async function fetchTokenDataFromClanker(contractAddress) {
   }
 }
 
-// Upstash Redis REST helper - pipelined for speed
-async function redisPipeline(commands) {
-  const res = await fetch(`${UPSTASH_REDIS_REST_URL}/pipeline`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(commands)
-  });
-  if (!res.ok) throw new Error(`Redis ${res.status}`);
-  return res.json();
-}
-
-async function postToRedis(tokenData) {
-  try {
-    tokenData.received_at = new Date().toISOString();
-
-    // Single HTTP request: LPUSH + LTRIM pipelined
-    await redisPipeline([
-      ["LPUSH", REDIS_KEY, JSON.stringify(tokenData)],
-      ["LTRIM", REDIS_KEY, "0", String(MAX_TOKENS - 1)]
-    ]);
-
-    console.log(`✅ ${tokenData.symbol} → Redis (${Date.now() - new Date(tokenData.received_at).getTime()}ms)`);
-  } catch (error) {
-    console.error('❌ Redis write failed:', error.message);
-  }
-}
 
 // Pure function: parse calldata from a transaction object (no RPC calls)
 function parseCalldataFromTx(tx) {
@@ -376,9 +340,8 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
     }
   };
 
-  // Broadcast via WebSocket FIRST (fastest path to browser), then persist to Redis
+  // Broadcast via WebSocket (stored in memory buffer + pushed to all clients)
   broadcastToken(tokenData);
-  await postToRedis(tokenData);
 }
 
 async function startListener() {
@@ -512,11 +475,6 @@ WSS_URLS.forEach((url, i) => {
 
 if (!CLANKER_FACTORY) {
   console.error('❌ CLANKER_FACTORY environment variable is required');
-  process.exit(1);
-}
-
-if (!UPSTASH_REDIS_REST_URL || !UPSTASH_REDIS_REST_TOKEN) {
-  console.error('❌ UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are required');
   process.exit(1);
 }
 

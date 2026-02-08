@@ -1,6 +1,8 @@
 require('dotenv').config();
 const { ethers } = require('ethers');
 const fetch = require('node-fetch');
+const http = require('http');
+const { WebSocketServer } = require('ws');
 
 // Environment variables
 const WSS_URLS = [
@@ -44,6 +46,67 @@ function cleanupCaches() {
   }
 }
 setInterval(cleanupCaches, 30_000);
+
+// ---- WebSocket Server for direct browser push ----
+const WS_PORT = parseInt(process.env.PORT) || 3001;
+const server = http.createServer((req, res) => {
+  // Health check endpoint
+  if (req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'ok', clients: wsClients.size }));
+    return;
+  }
+  res.writeHead(404);
+  res.end();
+});
+
+const wss = new WebSocketServer({ server });
+const wsClients = new Set();
+
+wss.on('connection', async (ws) => {
+  wsClients.add(ws);
+  console.log(`[WS] Client connected (${wsClients.size} total)`);
+
+  // Send recent tokens from Redis as init
+  try {
+    const res = await fetch(`${UPSTASH_REDIS_REST_URL}/lrange/${REDIS_KEY}/0/49`, {
+      headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` }
+    });
+    const data = await res.json();
+    if (data.result) {
+      const tokens = data.result.map(raw => typeof raw === 'string' ? JSON.parse(raw) : raw);
+      ws.send(JSON.stringify({ type: 'init', tokens }));
+    }
+  } catch (err) {
+    console.error('[WS] Init fetch error:', err.message);
+  }
+
+  ws.on('close', () => {
+    wsClients.delete(ws);
+    console.log(`[WS] Client disconnected (${wsClients.size} total)`);
+  });
+
+  ws.on('error', () => wsClients.delete(ws));
+});
+
+// Heartbeat every 30s to keep connections alive
+setInterval(() => {
+  for (const ws of wsClients) {
+    if (ws.readyState === 1) ws.ping();
+  }
+}, 30_000);
+
+function broadcastToken(tokenData) {
+  const msg = JSON.stringify({ type: 'token', token: tokenData });
+  for (const ws of wsClients) {
+    if (ws.readyState === 1) ws.send(msg);
+  }
+  console.log(`[WS] Broadcasted ${tokenData.symbol} to ${wsClients.size} clients`);
+}
+
+server.listen(WS_PORT, () => {
+  console.log(`🌐 WebSocket server listening on port ${WS_PORT}`);
+});
 
 let currentUrlIndex = 0; // Track which RPC we're using
 
@@ -239,8 +302,17 @@ async function checkFarcasterUserHasX(fid) {
 async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
   console.log(`\n🚀 ${symbol} | ${tokenAddress.slice(0,10)}... | Block ${event.blockNumber}`);
 
-  // Parse transaction data to get social context and deployer address
-  const txData = await parseTransactionData(txHash);
+  // Fetch tx data + block timestamp in parallel (no added latency)
+  const [txData, block] = await Promise.all([
+    parseTransactionData(txHash),
+    provider.getBlock(event.blockNumber).catch(() => null)
+  ]);
+
+  const blockTimestamp = block?.timestamp || null;
+  if (blockTimestamp) {
+    const rpcDelay = Math.round(Date.now() / 1000 - blockTimestamp);
+    console.log(`   📊 RPC delay: ${rpcDelay}s (block ${event.blockNumber})`);
+  }
 
   if (!txData) {
     console.log('⚠️  Could not parse transaction data, skipping');
@@ -286,7 +358,7 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
     image_url: txData.imageUrl,
     description: txData.description || '',
     tx_hash: txHash,
-    created_at: new Date().toISOString(),
+    created_at: blockTimestamp ? new Date(blockTimestamp * 1000).toISOString() : new Date().toISOString(),
     creator_address: null,
     msg_sender: txData.deployer || null,
     twitter_link: hasTwitter ? txData.tweetUrl : null,
@@ -304,7 +376,8 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
     }
   };
 
-  // Post to webhook immediately
+  // Broadcast via WebSocket FIRST (fastest path to browser), then persist to Redis
+  broadcastToken(tokenData);
   await postToRedis(tokenData);
 }
 

@@ -99,15 +99,15 @@ function HomeContent() {
     };
   }, [tokenAddresses]);
 
-  // SSE stream for real-time token updates (with polling fallback)
+  // WebSocket connection to Railway listener for real-time token push
   useEffect(() => {
     if (!scanning) return;
 
-    let eventSource: EventSource | null = null;
-    let fallbackInterval: ReturnType<typeof setInterval> | null = null;
-    let sseConnected = false;
+    let ws: WebSocket | null = null;
+    let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+    let destroyed = false;
 
-    const processTokens = (incoming: ClankerToken[], isInitialBatch: boolean) => {
+    const processTokens = (incoming: ClankerToken[]) => {
       const unseen = incoming.filter(
         (t) => !seenRef.current.has(t.contract_address) && !deletedRef.current.has(t.contract_address) && hasRealSocialContext(t)
       );
@@ -135,63 +135,46 @@ function HomeContent() {
       }
     };
 
-    const connectSSE = () => {
-      try {
-        eventSource = new EventSource("/api/stream");
+    const connect = () => {
+      if (destroyed) return;
+      const wsUrl = process.env.NEXT_PUBLIC_WS_URL;
+      if (!wsUrl) { setError("WS URL not configured"); return; }
 
-        eventSource.addEventListener("init", (e: MessageEvent) => {
-          sseConnected = true;
-          setError(null);
-          if (fallbackInterval) { clearInterval(fallbackInterval); fallbackInterval = null; }
-          const batch: ClankerToken[] = JSON.parse(e.data);
-          console.log(`[SSE] Init: ${batch.length} tokens`);
-          processTokens(batch, true);
-        });
+      ws = new WebSocket(wsUrl);
 
-        eventSource.addEventListener("token", (e: MessageEvent) => {
-          sseConnected = true;
-          setError(null);
-          const token: ClankerToken = JSON.parse(e.data);
-          console.log(`[SSE] New: ${token.symbol}`);
-          processTokens([token], false);
-        });
+      ws.onopen = () => {
+        console.log("[WS] Connected");
+        setError(null);
+      };
 
-        eventSource.onerror = () => {
-          if (!sseConnected) {
-            console.log("[SSE] Failed to connect, falling back to polling");
-            startFallbackPolling();
-          }
-        };
-      } catch {
-        startFallbackPolling();
-      }
-    };
-
-    const startFallbackPolling = () => {
-      if (fallbackInterval) return;
-      console.log("[Fallback] Starting 1s polling");
-
-      const fetchTokens = async () => {
-        try {
-          const res = await fetch("/api/tokens");
-          if (!res.ok) { setError(`API error: ${res.status}`); return; }
-          const data = await res.json();
-          setError(null);
-          processTokens(data.data || [], !initialLoadDoneRef.current);
-        } catch {
-          setError("Network error");
+      ws.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        if (msg.type === "init") {
+          console.log(`[WS] Init: ${msg.tokens.length} tokens`);
+          processTokens(msg.tokens);
+        } else if (msg.type === "token") {
+          console.log(`[WS] New: ${msg.token.symbol}`);
+          processTokens([msg.token]);
         }
       };
 
-      fetchTokens();
-      fallbackInterval = setInterval(fetchTokens, 500);
+      ws.onclose = () => {
+        if (destroyed) return;
+        console.log("[WS] Disconnected, reconnecting in 1s...");
+        reconnectTimeout = setTimeout(connect, 1000);
+      };
+
+      ws.onerror = () => {
+        ws?.close();
+      };
     };
 
-    connectSSE();
+    connect();
 
     return () => {
-      if (eventSource) eventSource.close();
-      if (fallbackInterval) clearInterval(fallbackInterval);
+      destroyed = true;
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (ws) ws.close();
     };
   }, [scanning]);
 

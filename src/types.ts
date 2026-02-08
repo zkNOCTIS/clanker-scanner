@@ -222,8 +222,9 @@ export function detectFeeRecommendation(
     while ((match = pattern.exec(text)) !== null) {
       if (match[1].toLowerCase() === replyTo) {
         // Check for negation words before the match (e.g. "don't direct fees")
-        const before = text.slice(Math.max(0, match.index - 15), match.index);
-        if (/(?:don'?t|do\s+not)\s*$/.test(before)) return null;
+        // Use full text before match to catch "Don't direct all fees to @X"
+        const before = text.slice(Math.max(0, match.index - 50), match.index);
+        if (/(?:don'?t|do\s+not)\s/.test(before)) return null;
         return replyToUsername.replace(/^@/, "");
       }
     }

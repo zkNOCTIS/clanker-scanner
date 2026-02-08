@@ -9,9 +9,13 @@ const WSS_URLS = [
 ].filter(Boolean); // Remove undefined/null entries
 
 const CLANKER_FACTORY = process.env.CLANKER_FACTORY; // Clanker factory contract address
-const WEBHOOK_URL = process.env.WEBHOOK_URL; // Your Vercel webhook URL
-const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'your-secret-key';
 const NEYNAR_API_KEY = process.env.NEYNAR_API_KEY; // Neynar API for Farcaster verification
+
+// Upstash Redis (direct write, skips Vercel webhook hop)
+const UPSTASH_REDIS_REST_URL = process.env.UPSTASH_REDIS_REST_URL;
+const UPSTASH_REDIS_REST_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+const REDIS_KEY = "clanker:tokens";
+const MAX_TOKENS = 100;
 
 // Whitelist of legitimate deployer addresses (lowercase)
 const WHITELISTED_DEPLOYERS = new Set([
@@ -89,26 +93,38 @@ async function fetchTokenDataFromClanker(contractAddress) {
   }
 }
 
-async function postToWebhook(tokenData) {
+// Upstash Redis REST helper
+async function redisCommand(command) {
+  const res = await fetch(`${UPSTASH_REDIS_REST_URL}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(command)
+  });
+  if (!res.ok) throw new Error(`Redis ${res.status}`);
+  return res.json();
+}
+
+async function postToRedis(tokenData) {
   try {
-    console.log(`Posting token to webhook: ${tokenData.symbol}`);
+    tokenData.received_at = new Date().toISOString();
 
-    const response = await fetch(WEBHOOK_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Webhook-Secret': WEBHOOK_SECRET
-      },
-      body: JSON.stringify(tokenData)
-    });
+    // Get existing tokens
+    const existing = await redisCommand(["GET", REDIS_KEY]);
+    const tokens = existing.result ? JSON.parse(existing.result) : [];
 
-    if (response.ok) {
-      console.log(`✅ Successfully posted ${tokenData.symbol} to webhook`);
-    } else {
-      console.error(`❌ Webhook POST failed: ${response.status}`);
-    }
+    // Prepend new token, trim to max
+    tokens.unshift(tokenData);
+    if (tokens.length > MAX_TOKENS) tokens.length = MAX_TOKENS;
+
+    // Write back
+    await redisCommand(["SET", REDIS_KEY, JSON.stringify(tokens)]);
+
+    console.log(`✅ ${tokenData.symbol} → Redis direct (${tokens.length} total)`);
   } catch (error) {
-    console.error('Error posting to webhook:', error.message);
+    console.error('❌ Redis write failed:', error.message);
   }
 }
 
@@ -330,7 +346,7 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
   };
 
   // Post to webhook immediately
-  await postToWebhook(tokenData);
+  await postToRedis(tokenData);
 }
 
 // Pending transaction prefetch listener
@@ -527,8 +543,8 @@ if (!CLANKER_FACTORY) {
   process.exit(1);
 }
 
-if (!WEBHOOK_URL) {
-  console.error('❌ WEBHOOK_URL environment variable is required');
+if (!UPSTASH_REDIS_REST_URL || !UPSTASH_REDIS_REST_TOKEN) {
+  console.error('❌ UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are required');
   process.exit(1);
 }
 

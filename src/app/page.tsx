@@ -156,7 +156,7 @@ function HomeContent() {
 
       const fetchTokens = async () => {
         try {
-          const res = await fetch("/api/webhook");
+          const res = await fetch("/api/tokens");
           if (!res.ok) { setError(`API error: ${res.status}`); return; }
           const data = await res.json();
           setError(null);
@@ -167,7 +167,7 @@ function HomeContent() {
       };
 
       fetchTokens();
-      fallbackInterval = setInterval(fetchTokens, 1000);
+      fallbackInterval = setInterval(fetchTokens, 500);
     };
 
     connectSSE();

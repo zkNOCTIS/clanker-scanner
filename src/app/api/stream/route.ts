@@ -7,8 +7,8 @@ const redis = new Redis({
   token: process.env.UPSTASH_REDIS_REST_TOKEN!,
 });
 
-const REDIS_KEY = "clanker:tokens";
-const POLL_INTERVAL_MS = 250;
+const REDIS_KEY = "clanker:tokens:list";
+const POLL_INTERVAL_MS = 50;
 const MAX_STREAM_DURATION_MS = 25000;
 
 export async function GET(req: Request) {
@@ -25,8 +25,8 @@ export async function GET(req: Request) {
       // Send initial batch on first connect
       if (knownAddresses.size === 0) {
         try {
-          const tokens = (await redis.get<any[]>(REDIS_KEY)) || [];
-          const batch = tokens.slice(0, 50);
+          const raw = (await redis.lrange(REDIS_KEY, 0, 49)) || [];
+          const batch = raw as any[];
           if (batch.length > 0) {
             batch.forEach((t: any) => lastSeenAddresses.add(t.contract_address));
             controller.enqueue(
@@ -43,7 +43,8 @@ export async function GET(req: Request) {
       // Poll loop
       while (Date.now() - startTime < MAX_STREAM_DURATION_MS) {
         try {
-          const tokens = (await redis.get<any[]>(REDIS_KEY)) || [];
+          const rawPoll = (await redis.lrange(REDIS_KEY, 0, 49)) || [];
+          const tokens = rawPoll as any[];
           const newTokens = tokens.filter(
             (t: any) => !lastSeenAddresses.has(t.contract_address)
           );

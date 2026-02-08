@@ -14,7 +14,7 @@ const NEYNAR_API_KEY = process.env.NEYNAR_API_KEY; // Neynar API for Farcaster v
 // Upstash Redis (direct write, skips Vercel webhook hop)
 const UPSTASH_REDIS_REST_URL = process.env.UPSTASH_REDIS_REST_URL;
 const UPSTASH_REDIS_REST_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
-const REDIS_KEY = "clanker:tokens";
+const REDIS_KEY = "clanker:tokens:list";
 const MAX_TOKENS = 100;
 
 // Whitelist of legitimate deployer addresses (lowercase)
@@ -111,18 +111,11 @@ async function postToRedis(tokenData) {
   try {
     tokenData.received_at = new Date().toISOString();
 
-    // Get existing tokens
-    const existing = await redisCommand(["GET", REDIS_KEY]);
-    const tokens = existing.result ? JSON.parse(existing.result) : [];
+    // LPUSH + LTRIM: 1 atomic prepend, no read-modify-write cycle
+    await redisCommand(["LPUSH", REDIS_KEY, JSON.stringify(tokenData)]);
+    await redisCommand(["LTRIM", REDIS_KEY, "0", String(MAX_TOKENS - 1)]);
 
-    // Prepend new token, trim to max
-    tokens.unshift(tokenData);
-    if (tokens.length > MAX_TOKENS) tokens.length = MAX_TOKENS;
-
-    // Write back
-    await redisCommand(["SET", REDIS_KEY, JSON.stringify(tokens)]);
-
-    console.log(`✅ ${tokenData.symbol} → Redis direct (${tokens.length} total)`);
+    console.log(`✅ ${tokenData.symbol} → Redis direct`);
   } catch (error) {
     console.error('❌ Redis write failed:', error.message);
   }

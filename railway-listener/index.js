@@ -286,6 +286,12 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
     return;
   }
 
+  // Skip Clank.fun deploys - no useful social context to display
+  if (txData.interface && txData.interface.toLowerCase() === 'clank.fun') {
+    console.log('⚠️  Clank.fun deploy, skipping (no social context)');
+    return;
+  }
+
   // Determine platform: Twitter or Farcaster
   const hasTwitter = !!txData.tweetUrl;
   const hasFarcasterFid = !!txData.id && /^\d+$/.test(txData.id); // FID is numeric

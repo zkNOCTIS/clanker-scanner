@@ -29,12 +29,31 @@ const BLACKLISTED_FARCASTER_FIDS = new Set([
   '897406'  // @outflow.eth - spam deployer
 ]);
 
+// ---- Prefetch Cache for pending transactions ----
+const pendingTxCache = new Map(); // Map<txHash, { parsedData, timestamp }>
+const PENDING_TX_TTL_MS = 60_000; // 60 seconds
+
+// ---- Neynar FID Cache ----
+const neynarCache = new Map(); // Map<FID, { hasLinkedX, xUsername, timestamp }>
+const NEYNAR_CACHE_TTL_MS = 3600_000; // 1 hour
+
+function cleanupCaches() {
+  const now = Date.now();
+  for (const [hash, entry] of pendingTxCache) {
+    if (now - entry.timestamp > PENDING_TX_TTL_MS) pendingTxCache.delete(hash);
+  }
+  for (const [fid, entry] of neynarCache) {
+    if (now - entry.timestamp > NEYNAR_CACHE_TTL_MS) neynarCache.delete(fid);
+  }
+}
+setInterval(cleanupCaches, 30_000);
+
 let currentUrlIndex = 0; // Track which RPC we're using
 
 // Clanker API for fetching social context
 const CLANKER_API = 'https://www.clanker.world/api/tokens';
 
-// ABI for TokenCreated event - we'll update this when we know the actual event structure
+// ABI for TokenCreated event
 const FACTORY_ABI = [
   "event TokenCreated(address indexed token, string name, string symbol, address indexed creator)"
 ];
@@ -93,60 +112,61 @@ async function postToWebhook(tokenData) {
   }
 }
 
+// Pure function: parse calldata from a transaction object (no RPC calls)
+function parseCalldataFromTx(tx) {
+  if (!tx || !tx.data) return null;
+
+  const deployer = tx.from?.toLowerCase() || null;
+  const hexData = tx.data;
+
+  // Convert hex to ASCII and look for JSON patterns
+  let asciiData = '';
+  for (let i = 2; i < hexData.length; i += 2) {
+    const byte = parseInt(hexData.substr(i, 2), 16);
+    if (byte >= 32 && byte <= 126) {
+      asciiData += String.fromCharCode(byte);
+    } else {
+      asciiData += ' ';
+    }
+  }
+
+  const tweetMatch = asciiData.match(/https:\/\/(twitter\.com|x\.com)\/[^"\s]+\/status\/\d+/);
+  const imageMatch = asciiData.match(/https:\/\/pbs\.twimg\.com\/media\/[^\s"]+/);
+  const nameMatch = asciiData.match(/"name":"([^"]+)"/);
+  const symbolMatch = asciiData.match(/"symbol":"([^"]+)"/);
+  const descMatch = asciiData.match(/"description":"([^"]+)"/);
+  const interfaceMatch = asciiData.match(/"interface":"([^"]+)"/);
+  const platformMatch = asciiData.match(/"platform":"([^"]+)"/);
+  const messageIdMatch = asciiData.match(/"messageId":"([^"]+)"/);
+  const idMatch = asciiData.match(/"id":"([^"]+)"/);
+
+  return {
+    tweetUrl: tweetMatch ? tweetMatch[0] : null,
+    imageUrl: imageMatch ? imageMatch[0] : null,
+    name: nameMatch ? nameMatch[1] : null,
+    symbol: symbolMatch ? symbolMatch[1] : null,
+    description: descMatch ? descMatch[1] : null,
+    interface: interfaceMatch ? interfaceMatch[1] : null,
+    platform: platformMatch ? platformMatch[1] : null,
+    messageId: messageIdMatch ? messageIdMatch[1] : null,
+    id: idMatch ? idMatch[1] : null,
+    deployer: deployer
+  };
+}
+
+// Check prefetch cache first, fallback to RPC
 async function parseTransactionData(txHash) {
+  const cached = pendingTxCache.get(txHash);
+  if (cached) {
+    console.log(`   [CACHE HIT] Prefetched data for ${txHash.slice(0, 10)}...`);
+    pendingTxCache.delete(txHash);
+    return cached.parsedData;
+  }
+
+  console.log(`   [CACHE MISS] Fetching tx data for ${txHash.slice(0, 10)}...`);
   try {
-    console.log(`Fetching transaction data for ${txHash}...`);
     const tx = await provider.getTransaction(txHash);
-
-    if (!tx || !tx.data) {
-      console.log('No transaction data found');
-      return null;
-    }
-
-    // Get deployer address for whitelist verification
-    const deployer = tx.from?.toLowerCase() || null;
-
-    // Decode the input data - looking for JSON strings in the hex data
-    const hexData = tx.data;
-
-    // Convert hex to ASCII and look for JSON patterns
-    let asciiData = '';
-    for (let i = 2; i < hexData.length; i += 2) {
-      const byte = parseInt(hexData.substr(i, 2), 16);
-      if (byte >= 32 && byte <= 126) { // Printable ASCII
-        asciiData += String.fromCharCode(byte);
-      } else {
-        asciiData += ' ';
-      }
-    }
-
-    // Extract tweet URL from context.messageId (both twitter.com and x.com)
-    const tweetMatch = asciiData.match(/https:\/\/(twitter\.com|x\.com)\/[^"\s]+\/status\/\d+/);
-    const imageMatch = asciiData.match(/https:\/\/pbs\.twimg\.com\/media\/[^\s"]+/);
-    const nameMatch = asciiData.match(/"name":"([^"]+)"/);
-    const symbolMatch = asciiData.match(/"symbol":"([^"]+)"/);
-    const descMatch = asciiData.match(/"description":"([^"]+)"/);
-
-    // Extract social_context fields (for Bankr verification)
-    const interfaceMatch = asciiData.match(/"interface":"([^"]+)"/);
-    const platformMatch = asciiData.match(/"platform":"([^"]+)"/);
-    const messageIdMatch = asciiData.match(/"messageId":"([^"]+)"/);
-    const idMatch = asciiData.match(/"id":"([^"]+)"/);
-
-    return {
-      tweetUrl: tweetMatch ? tweetMatch[0] : null,
-      imageUrl: imageMatch ? imageMatch[0] : null,
-      name: nameMatch ? nameMatch[1] : null,
-      symbol: symbolMatch ? symbolMatch[1] : null,
-      description: descMatch ? descMatch[1] : null,
-      // Social context for Bankr verification
-      interface: interfaceMatch ? interfaceMatch[1] : null,
-      platform: platformMatch ? platformMatch[1] : null,
-      messageId: messageIdMatch ? messageIdMatch[1] : null,
-      id: idMatch ? idMatch[1] : null,
-      // Deployer address for whitelist verification
-      deployer: deployer
-    };
+    return parseCalldataFromTx(tx);
   } catch (error) {
     console.error('Error parsing transaction data:', error.message);
     return null;
@@ -156,6 +176,13 @@ async function parseTransactionData(txHash) {
 // Note: Twitter stats extraction moved to frontend where we can parse the embedded tweet HTML
 
 async function checkFarcasterUserHasX(fid) {
+  // Check Neynar cache first
+  const cached = neynarCache.get(fid);
+  if (cached) {
+    console.log(`   [NEYNAR CACHE] FID ${fid}: hasLinkedX=${cached.hasLinkedX}`);
+    return { hasLinkedX: cached.hasLinkedX, xUsername: cached.xUsername };
+  }
+
   if (!NEYNAR_API_KEY || NEYNAR_API_KEY === 'your_neynar_api_key_here') {
     console.log('⚠️  Neynar API key not configured, skipping Farcaster verification');
     return false;
@@ -164,7 +191,6 @@ async function checkFarcasterUserHasX(fid) {
   try {
     console.log(`Checking Farcaster FID ${fid} for linked X account...`);
 
-    // Neynar API v2 endpoint for user details
     const response = await fetch(`https://api.neynar.com/v2/farcaster/user/bulk?fids=${fid}`, {
       headers: {
         'accept': 'application/json',
@@ -181,21 +207,28 @@ async function checkFarcasterUserHasX(fid) {
 
     if (!data.users || data.users.length === 0) {
       console.log(`Farcaster user ${fid} not found`);
+      neynarCache.set(fid, { hasLinkedX: false, xUsername: null, timestamp: Date.now() });
       return false;
     }
 
     const user = data.users[0];
-
-    // Check if user has verified X account in verified_accounts
     const verifiedXAccount = user.verified_accounts?.find(acc => acc.platform === 'x');
 
-    if (verifiedXAccount && verifiedXAccount.username) {
-      console.log(`✅ Farcaster user ${fid} (@${user.username}) has linked X account: @${verifiedXAccount.username}`);
-      return { hasLinkedX: true, xUsername: verifiedXAccount.username };
+    const result = {
+      hasLinkedX: !!(verifiedXAccount && verifiedXAccount.username),
+      xUsername: verifiedXAccount?.username || null
+    };
+
+    // Cache the result
+    neynarCache.set(fid, { ...result, timestamp: Date.now() });
+
+    if (result.hasLinkedX) {
+      console.log(`✅ Farcaster user ${fid} (@${user.username}) has linked X: @${result.xUsername}`);
+    } else {
+      console.log(`❌ Farcaster user ${fid} (@${user.username}) has NO linked X account`);
     }
 
-    console.log(`❌ Farcaster user ${fid} (@${user.username}) has NO linked X account`);
-    return { hasLinkedX: false, xUsername: null };
+    return result;
   } catch (error) {
     console.error('Error checking Farcaster user:', error.message);
     return false;
@@ -267,7 +300,6 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
   }
 
   // Build token data object matching Clanker API format
-  // For Farcaster deploys, messageId contains the cast hash (starts with 0x)
   const castHash = hasFarcasterFid && txData.messageId && txData.messageId.startsWith('0x')
     ? txData.messageId
     : null;
@@ -284,11 +316,10 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
     msg_sender: txData.deployer || null,
     twitter_link: hasTwitter ? txData.tweetUrl : null,
     farcaster_link: hasFarcasterFid ? txData.messageId : null,
-    cast_hash: castHash, // Cast hash for Farcaster deploys
+    cast_hash: castHash,
     website_link: null,
     telegram_link: null,
     discord_link: null,
-    // Include social_context for all platforms
     social_context: {
       interface: txData.interface || (hasTwitter ? 'twitter' : hasFarcasterFid ? 'farcaster' : 'unknown'),
       platform: hasTwitter ? 'X' : hasFarcasterFid ? 'farcaster' : (txData.platform || 'unknown'),
@@ -300,6 +331,42 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
 
   // Post to webhook immediately
   await postToWebhook(tokenData);
+}
+
+// Pending transaction prefetch listener
+function startPendingTxListener() {
+  console.log('⚡ Starting pending tx prefetch listener...');
+
+  provider.on("pending", async (txHash) => {
+    try {
+      const tx = await provider.getTransaction(txHash);
+      if (!tx || !tx.to || tx.to.toLowerCase() !== CLANKER_FACTORY.toLowerCase()) return;
+
+      console.log(`\n⚡ [PENDING] Clanker factory tx: ${txHash.slice(0, 10)}...`);
+
+      const parsedData = parseCalldataFromTx(tx);
+      if (!parsedData) return;
+
+      // Quick whitelist check - no point caching non-whitelisted
+      if (!parsedData.deployer || !WHITELISTED_DEPLOYERS.has(parsedData.deployer)) return;
+
+      console.log(`⚡ [PENDING] Whitelisted deployer. Caching: ${parsedData.name || 'unknown'}`);
+
+      // Pre-fire Neynar check for Farcaster deploys
+      const hasFarcasterFid = !!parsedData.id && /^\d+$/.test(parsedData.id);
+      if (hasFarcasterFid && !WHITELISTED_FARCASTER_FIDS.has(parsedData.id) && !BLACKLISTED_FARCASTER_FIDS.has(parsedData.id)) {
+        console.log(`⚡ [PENDING] Pre-fetching Neynar for FID ${parsedData.id}...`);
+        checkFarcasterUserHasX(parsedData.id).catch(() => {});
+      }
+
+      // Store in prefetch cache
+      pendingTxCache.set(txHash, { parsedData, timestamp: Date.now() });
+    } catch {
+      // Silently ignore - most pending txs aren't for us
+    }
+  });
+
+  console.log('⚡ Pending tx prefetch listener active\n');
 }
 
 async function startListener() {
@@ -316,50 +383,62 @@ async function startListener() {
 
     console.log(`📡 Listening to Clanker Factory: ${CLANKER_FACTORY}`);
 
-    // Listen to ALL events from factory (to debug the actual event structure)
     const filter = {
       address: CLANKER_FACTORY
     };
 
-    // Create contract interface to decode events
     contract = new ethers.Contract(CLANKER_FACTORY, FACTORY_ABI, provider);
 
     provider.on(filter, async (log) => {
+      const eventStart = Date.now();
       console.log('\n🚀 NEW EVENT DETECTED!');
       console.log('Block:', log.blockNumber);
       console.log('Tx:', log.transactionHash);
 
       try {
-        // Extract token address from topics (first indexed parameter)
-        if (log.topics.length >= 2) {
-          const tokenAddress = '0x' + log.topics[1].slice(26); // Remove padding
-          console.log('Token address:', tokenAddress);
+        if (log.topics.length < 2) {
+          console.log('⚠️  Event has no topics, skipping');
+          return;
+        }
 
-          // Call the token contract to get name and symbol
+        const tokenAddress = '0x' + log.topics[1].slice(26);
+        console.log('Token address:', tokenAddress);
+
+        // Optimization A: Decode name/symbol from log.data (no RPC calls)
+        let name, symbol;
+        try {
+          const abiCoder = ethers.AbiCoder.defaultAbiCoder();
+          const decoded = abiCoder.decode(["string", "string"], log.data);
+          name = decoded[0];
+          symbol = decoded[1];
+          console.log(`   [ABI DECODE] name="${name}" symbol="${symbol}" (0ms)`);
+        } catch (decodeErr) {
+          // Fallback to RPC if ABI decode fails
+          console.log(`   [ABI DECODE FAILED] Falling back to RPC: ${decodeErr.message}`);
           const tokenContract = new ethers.Contract(
             tokenAddress,
             ['function name() view returns (string)', 'function symbol() view returns (string)'],
             provider
           );
-
-          console.log('Fetching token name and symbol...');
-          const [name, symbol] = await Promise.all([
+          [name, symbol] = await Promise.all([
             tokenContract.name(),
             tokenContract.symbol()
           ]);
-
-          console.log('Token name:', name);
-          console.log('Token symbol:', symbol);
-
-          // Parse transaction data directly from blockchain
-          handleTokenCreated(tokenAddress, name, symbol, log.transactionHash, { blockNumber: log.blockNumber });
-        } else {
-          console.log('⚠️  Event has no topics, skipping');
         }
+
+        console.log('Token name:', name);
+        console.log('Token symbol:', symbol);
+
+        await handleTokenCreated(tokenAddress, name, symbol, log.transactionHash, { blockNumber: log.blockNumber });
+
+        console.log(`   [TIMING] Total: ${Date.now() - eventStart}ms`);
       } catch (error) {
         console.error('❌ Error processing event:', error.message);
       }
     });
+
+    // Start pending tx prefetch listener
+    startPendingTxListener();
 
     console.log('👂 Listening for ALL events from factory...\n');
 
@@ -416,6 +495,7 @@ async function reconnect() {
 // Graceful shutdown
 process.on('SIGINT', () => {
   console.log('\n👋 Shutting down gracefully...');
+  console.log(`   Cache stats: pendingTx=${pendingTxCache.size}, neynar=${neynarCache.size}`);
   if (provider) {
     provider.destroy();
   }
@@ -424,6 +504,7 @@ process.on('SIGINT', () => {
 
 process.on('SIGTERM', () => {
   console.log('\n👋 Shutting down gracefully...');
+  console.log(`   Cache stats: pendingTx=${pendingTxCache.size}, neynar=${neynarCache.size}`);
   if (provider) {
     provider.destroy();
   }

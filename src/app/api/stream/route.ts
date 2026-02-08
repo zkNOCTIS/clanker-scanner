@@ -8,7 +8,7 @@ const redis = new Redis({
 });
 
 const REDIS_KEY = "clanker:tokens";
-const POLL_INTERVAL_MS = 500;
+const POLL_INTERVAL_MS = 250;
 const MAX_STREAM_DURATION_MS = 25000;
 
 export async function GET(req: Request) {

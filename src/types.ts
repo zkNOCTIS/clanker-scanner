@@ -208,11 +208,11 @@ export function detectFeeRecommendation(
   const text = tweetText.toLowerCase();
   const replyTo = replyToUsername.toLowerCase().replace(/^@/, "");
 
-  // Match patterns like "fees to @X", "give fees to @X", "send the fees to X"
+  // Match patterns like "fees to @X", "give fees to @X", "redirect fees and admin to X"
   const feePatterns = [
-    /(?:give|send|direct)\s+(?:the\s+)?(?:all\s+)?fees?\s+too?\s+@?(\w+)/gi,
-    /fees?\s+too?\s+@?(\w+)/gi,
-    /(?:give|send|direct)\s+(?:the\s+)?(?:all\s+)?fees?\s+(?:too?\s+)?(?:for\s+)?@?(\w+)/gi,
+    /(?:give|send|direct|redirect)\s+(?:the\s+)?(?:all\s+)?fees?\s+too?\s+@?(\w+)/gi,
+    /fees?\s+(?:[\w\s]{0,20}\s+)?too?\s+@?(\w+)/gi,
+    /(?:give|send|direct|redirect)\s+(?:the\s+)?(?:all\s+)?fees?\s+(?:[\w\s]{0,20}\s+)?(?:too?\s+)?(?:for\s+)?@?(\w+)/gi,
     /@(\w+)\s+(?:gets?\s+(?:the\s+)?fees?|receives?\s+(?:the\s+)?fees?)/gi,
   ];
 

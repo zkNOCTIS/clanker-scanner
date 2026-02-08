@@ -14,7 +14,10 @@ const RPC_URLS = [
 
 const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11";
 const STATEVIEW = "0xA3c0c9b65baD0b08107Aa264b0f3dB444b867A71";
-const HOOK = "0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC";
+const HOOKS = [
+  "0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC", // Clanker (X/Twitter)
+  "0xd60D6B218116cFd801E28F78d011a203D2b068Cc", // Farcaster
+];
 const WETH = "0x4200000000000000000000000000000000000006";
 const CHAINLINK_ETH_USD = "0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70";
 const DYNAMIC_FEE = 0x800000;
@@ -67,7 +70,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   ]);
 }
 
-function computePoolId(tokenAddr: string): string {
+function computePoolIds(tokenAddr: string): string[] {
   const wethAddr = ethers.getAddress(WETH);
   const token = ethers.getAddress(tokenAddr);
 
@@ -75,11 +78,13 @@ function computePoolId(tokenAddr: string): string {
     BigInt(a) < BigInt(b) ? -1 : 1
   );
 
-  const encoded = abiCoder.encode(
-    ["address", "address", "uint24", "int24", "address"],
-    [token0, token1, DYNAMIC_FEE, 200, ethers.getAddress(HOOK)]
-  );
-  return ethers.keccak256(encoded);
+  return HOOKS.map((hook) => {
+    const encoded = abiCoder.encode(
+      ["address", "address", "uint24", "int24", "address"],
+      [token0, token1, DYNAMIC_FEE, 200, ethers.getAddress(hook)]
+    );
+    return ethers.keccak256(encoded);
+  });
 }
 
 function sqrtPriceToMcap(
@@ -128,14 +133,17 @@ async function multicallBatch(
     callData: chainlinkIface.encodeFunctionData("latestRoundData"),
   });
 
-  // Calls 1..N: getSlot0 for each token
-  const poolIds = addresses.map((addr) => computePoolId(addr));
-  for (const poolId of poolIds) {
-    calls.push({
-      target: ethers.getAddress(STATEVIEW),
-      allowFailure: true,
-      callData: stateviewIface.encodeFunctionData("getSlot0", [poolId]),
-    });
+  // Calls 1..N: getSlot0 for each token × each hook
+  const hookCount = HOOKS.length;
+  for (const addr of addresses) {
+    const poolIds = computePoolIds(addr);
+    for (const poolId of poolIds) {
+      calls.push({
+        target: ethers.getAddress(STATEVIEW),
+        allowFailure: true,
+        callData: stateviewIface.encodeFunctionData("getSlot0", [poolId]),
+      });
+    }
   }
 
   const results = await multicall.aggregate3(calls);
@@ -147,27 +155,32 @@ async function multicallBatch(
   );
   const ethPrice = Number(ethPriceData[1]) / 10 ** 8;
 
-  // Parse each token's slot0 (calls 1..N)
+  // Parse each token's slot0 — try each hook, use first success
   const mcaps: Record<string, number | null> = {};
   for (let i = 0; i < addresses.length; i++) {
-    const result = results[i + 1]; // offset by 1 for chainlink call
     const addr = addresses[i].toLowerCase();
+    let found = false;
 
-    if (!result.success) {
-      mcaps[addr] = null;
-      continue;
+    for (let h = 0; h < hookCount; h++) {
+      const result = results[1 + i * hookCount + h]; // offset by 1 for chainlink
+      if (!result.success) continue;
+
+      try {
+        const decoded = stateviewIface.decodeFunctionResult(
+          "getSlot0",
+          result.returnData
+        );
+        const sqrtPriceX96 = BigInt(decoded[0]);
+        if (sqrtPriceX96 === 0n) continue;
+        mcaps[addr] = sqrtPriceToMcap(sqrtPriceX96, addresses[i], ethPrice);
+        found = true;
+        break;
+      } catch {
+        continue;
+      }
     }
 
-    try {
-      const decoded = stateviewIface.decodeFunctionResult(
-        "getSlot0",
-        result.returnData
-      );
-      const sqrtPriceX96 = BigInt(decoded[0]);
-      mcaps[addr] = sqrtPriceToMcap(sqrtPriceX96, addresses[i], ethPrice);
-    } catch {
-      mcaps[addr] = null;
-    }
+    if (!found) mcaps[addr] = null;
   }
 
   return { ethPrice, mcaps };

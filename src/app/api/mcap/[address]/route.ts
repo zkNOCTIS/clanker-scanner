@@ -13,7 +13,10 @@ const RPC_URLS = [
 ];
 
 const STATEVIEW = "0xA3c0c9b65baD0b08107Aa264b0f3dB444b867A71";
-const HOOK = "0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC";
+const HOOKS = [
+  "0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC", // Clanker (X/Twitter)
+  "0xd60D6B218116cFd801E28F78d011a203D2b068Cc", // Farcaster
+];
 const WETH = "0x4200000000000000000000000000000000000006";
 const CHAINLINK_ETH_USD = "0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70";
 const DYNAMIC_FEE = 0x800000;
@@ -76,25 +79,25 @@ async function calculateMcapWithRpc(rpcUrl: string, tokenAddr: string): Promise<
     BigInt(a) < BigInt(b) ? -1 : 1
   );
 
-  // Calculate pool ID using Uniswap V4 format
+  // Try each hook to find the right pool
   const abiCoder = ethers.AbiCoder.defaultAbiCoder();
-  const encoded = abiCoder.encode(
-    ['address', 'address', 'uint24', 'int24', 'address'],
-    [token0, token1, DYNAMIC_FEE, 200, ethers.getAddress(HOOK)]
-  );
-  const poolId = ethers.keccak256(encoded);
-
-  // Get pool data from StateView
   const stateViewContract = new ethers.Contract(
     ethers.getAddress(STATEVIEW),
     STATEVIEW_ABI,
     provider
   );
 
-  const poolData = await stateViewContract.getSlot0(poolId);
-  const sqrtPriceX96 = BigInt(poolData[0]);
-
-  console.log(`[${tokenAddr}] sqrtPriceX96:`, sqrtPriceX96.toString());
+  let sqrtPriceX96 = 0n;
+  for (const hook of HOOKS) {
+    const encoded = abiCoder.encode(
+      ['address', 'address', 'uint24', 'int24', 'address'],
+      [token0, token1, DYNAMIC_FEE, 200, ethers.getAddress(hook)]
+    );
+    const poolId = ethers.keccak256(encoded);
+    const poolData = await stateViewContract.getSlot0(poolId);
+    sqrtPriceX96 = BigInt(poolData[0]);
+    if (sqrtPriceX96 !== 0n) break;
+  }
 
   if (sqrtPriceX96 === 0n) {
     throw new Error('Pool not initialized');

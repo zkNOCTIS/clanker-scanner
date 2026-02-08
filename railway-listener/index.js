@@ -33,19 +33,12 @@ const BLACKLISTED_FARCASTER_FIDS = new Set([
   '897406'  // @outflow.eth - spam deployer
 ]);
 
-// ---- Prefetch Cache for pending transactions ----
-const pendingTxCache = new Map(); // Map<txHash, { parsedData, timestamp }>
-const PENDING_TX_TTL_MS = 60_000; // 60 seconds
-
 // ---- Neynar FID Cache ----
 const neynarCache = new Map(); // Map<FID, { hasLinkedX, xUsername, timestamp }>
 const NEYNAR_CACHE_TTL_MS = 3600_000; // 1 hour
 
 function cleanupCaches() {
   const now = Date.now();
-  for (const [hash, entry] of pendingTxCache) {
-    if (now - entry.timestamp > PENDING_TX_TTL_MS) pendingTxCache.delete(hash);
-  }
   for (const [fid, entry] of neynarCache) {
     if (now - entry.timestamp > NEYNAR_CACHE_TTL_MS) neynarCache.delete(fid);
   }
@@ -165,16 +158,7 @@ function parseCalldataFromTx(tx) {
   };
 }
 
-// Check prefetch cache first, fallback to RPC
 async function parseTransactionData(txHash) {
-  const cached = pendingTxCache.get(txHash);
-  if (cached) {
-    console.log(`   [CACHE HIT] Prefetched data for ${txHash.slice(0, 10)}...`);
-    pendingTxCache.delete(txHash);
-    return cached.parsedData;
-  }
-
-  console.log(`   [CACHE MISS] Fetching tx data for ${txHash.slice(0, 10)}...`);
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const tx = await provider.getTransaction(txHash);
@@ -324,59 +308,6 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
   await postToRedis(tokenData);
 }
 
-// Pending transaction prefetch listener - uses SEPARATE WebSocket to avoid
-// congesting the main connection with getTransaction calls for every pending tx
-let pendingProvider = null;
-
-function startPendingTxListener() {
-  const currentUrl = WSS_URLS[currentUrlIndex];
-
-  try {
-    pendingProvider = new ethers.WebSocketProvider(currentUrl);
-    console.log('⚡ Starting pending tx prefetch listener (separate connection)...');
-
-    pendingProvider.on("pending", async (txHash) => {
-      try {
-        const tx = await pendingProvider.getTransaction(txHash);
-        if (!tx || !tx.to || tx.to.toLowerCase() !== CLANKER_FACTORY.toLowerCase()) return;
-
-        console.log(`\n⚡ [PENDING] Clanker factory tx: ${txHash.slice(0, 10)}...`);
-
-        const parsedData = parseCalldataFromTx(tx);
-        if (!parsedData) return;
-
-        // Quick whitelist check - no point caching non-whitelisted
-        if (!parsedData.deployer || !WHITELISTED_DEPLOYERS.has(parsedData.deployer)) return;
-
-        console.log(`⚡ [PENDING] Whitelisted deployer. Caching: ${parsedData.name || 'unknown'}`);
-
-        // Pre-fire Neynar check for Farcaster deploys
-        const hasFarcasterFid = !!parsedData.id && /^\d+$/.test(parsedData.id);
-        if (hasFarcasterFid && !WHITELISTED_FARCASTER_FIDS.has(parsedData.id) && !BLACKLISTED_FARCASTER_FIDS.has(parsedData.id)) {
-          console.log(`⚡ [PENDING] Pre-fetching Neynar for FID ${parsedData.id}...`);
-          checkFarcasterUserHasX(parsedData.id).catch(() => {});
-        }
-
-        // Store in prefetch cache
-        pendingTxCache.set(txHash, { parsedData, timestamp: Date.now() });
-      } catch {
-        // Silently ignore - most pending txs aren't for us
-      }
-    });
-
-    pendingProvider.websocket.on('error', () => {});
-    pendingProvider.websocket.on('close', () => {
-      console.log('⚡ Pending tx listener disconnected (non-critical)');
-      pendingProvider = null;
-    });
-
-    console.log('⚡ Pending tx prefetch listener active\n');
-  } catch (err) {
-    console.log(`⚡ Pending tx listener failed to start: ${err.message} (non-critical)`);
-    pendingProvider = null;
-  }
-}
-
 async function startListener() {
   try {
     const currentUrl = WSS_URLS[currentUrlIndex];
@@ -427,9 +358,6 @@ async function startListener() {
         console.error('❌ Event error:', error.message);
       }
     });
-
-    // Start pending tx prefetch listener
-    startPendingTxListener();
 
     console.log('👂 Listening for ALL events from factory...\n');
 
@@ -486,16 +414,14 @@ async function reconnect() {
 // Graceful shutdown
 process.on('SIGINT', () => {
   console.log('\n👋 Shutting down gracefully...');
-  console.log(`   Cache stats: pendingTx=${pendingTxCache.size}, neynar=${neynarCache.size}`);
-  if (pendingProvider) pendingProvider.destroy();
+  console.log(`   Cache stats: neynar=${neynarCache.size}`);
   if (provider) provider.destroy();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
   console.log('\n👋 Shutting down gracefully...');
-  console.log(`   Cache stats: pendingTx=${pendingTxCache.size}, neynar=${neynarCache.size}`);
-  if (pendingProvider) pendingProvider.destroy();
+  console.log(`   Cache stats: neynar=${neynarCache.size}`);
   if (provider) provider.destroy();
   process.exit(0);
 });

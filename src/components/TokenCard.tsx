@@ -42,9 +42,8 @@ function getAntibotColor(fee: number): string {
 // Fee threshold where BasedBot accepts buys (~30%)
 const BASEDBOT_FEE_THRESHOLD = 30;
 
-// Open BasedBot at ~6.5s elapsed (server timestamp) → ~8s real → buy lands on-chain ~10s
-// Server timestamp is ~1.5-2s after actual block time due to event processing delay
-const SAFE_BUY_ELAPSED = 6.5;
+// Open BasedBot at ~8.5s elapsed (server timestamp) → buy lands on-chain ~10s
+const SAFE_BUY_ELAPSED = 8.5;
 
 export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = false, botDomain = "based_vip_eu_bot" }: { token: ClankerToken; isLatest?: boolean; onTweetDeleted?: () => void; shouldFetchStats?: boolean; botDomain?: string }) {
   const [copied, setCopied] = useState(false);

@@ -320,10 +320,10 @@ function HomeContent() {
                       onClick={() => {
                         document.getElementById(`token-${token.contract_address}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
                       }}
-                      className={`w-full px-3 py-2 flex items-center justify-between hover:bg-[#30363d]/50 transition-colors text-left ${index === 0 ? "bg-[#00ff88]/5" : ""}`}
+                      className={`w-full px-3 py-2 flex items-center justify-between hover:bg-[#30363d]/50 transition-colors text-left ${token.recommended && !token.duplicate_recommendation ? "bg-[#a855f7]/10 border-l-2 border-[#a855f7]" : index === 0 ? "bg-[#00ff88]/5" : ""}`}
                     >
                       <div className="min-w-0">
-                        <div className="font-mono text-sm text-white truncate">${token.symbol}</div>
+                        <div className={`font-mono text-sm truncate ${token.recommended && !token.duplicate_recommendation ? "text-[#a855f7]" : "text-white"}`}>${token.symbol}</div>
                         <div className="font-mono text-xs text-gray-500">{timeStr} ago</div>
                       </div>
                       <span className={`font-mono text-xs ${

@@ -133,7 +133,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
   };
 
   return (
-    <div className={`bg-[#161b22] border rounded-sm overflow-hidden ${token.recommended && !token.duplicate_recommendation ? "border-[#a855f7]/60" : "border-[#30363d]"}`}>
+    <div className={`bg-[#161b22] rounded-sm overflow-hidden ${token.recommended && !token.duplicate_recommendation ? "border-2 border-[#a855f7]" : "border border-[#30363d]"}`}>
       {/* Header */}
       <div className="p-4">
         <div className="flex items-start justify-between gap-4">

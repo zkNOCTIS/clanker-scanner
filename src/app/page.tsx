@@ -180,6 +180,7 @@ function HomeContent() {
 
   // FxTwitter fee recommendation check (async, non-blocking)
   const checkedRef = useRef<Set<string>>(new Set());
+  const recommendedTweetsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (tokens.length === 0) return;
 
@@ -200,19 +201,13 @@ function HomeContent() {
           const matchedUser = detectFeeRecommendation(data.tweet_text, data.reply_to_username);
           if (matchedUser) {
             const tweetId = getTweetId(tweetUrl);
-            setTokens((prev) => {
-              // Check if another token from the same tweet is already recommended
-              const isDuplicate = tweetId
-                ? prev.some(
-                    (t) =>
-                      t.recommended &&
-                      !t.duplicate_recommendation &&
-                      t.contract_address !== token.contract_address &&
-                      getTweetUrl(t) &&
-                      getTweetId(getTweetUrl(t)!) === tweetId
-                  )
-                : false;
-              return prev.map((t) =>
+            // Synchronous ref check beats any race condition between concurrent fetches
+            const isDuplicate = tweetId ? recommendedTweetsRef.current.has(tweetId) : false;
+            if (!isDuplicate && tweetId) {
+              recommendedTweetsRef.current.add(tweetId);
+            }
+            setTokens((prev) =>
+              prev.map((t) =>
                 t.contract_address === token.contract_address
                   ? {
                       ...t,
@@ -221,8 +216,8 @@ function HomeContent() {
                       duplicate_recommendation: isDuplicate,
                     }
                   : t
-              );
-            });
+              )
+            );
           }
         })
         .catch(() => {});

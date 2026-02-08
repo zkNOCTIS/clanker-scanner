@@ -262,8 +262,9 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
       txData.xUsername = xVerification.xUsername; // Add X username to txData
     }
   } else {
-    console.log('⚠️  No Twitter URL or Farcaster FID found, skipping');
-    return;
+    // No Twitter or Farcaster - but still from whitelisted deployer (e.g. InstaClaw/Basenames/terminal)
+    console.log(`   Platform: ${txData.interface || 'Unknown'} / ${txData.platform || 'Unknown'}`);
+    console.log(`   Description: ${txData.description?.slice(0, 80) || 'N/A'}`);
   }
 
   // Build token data object matching Clanker API format
@@ -281,19 +282,20 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
     tx_hash: txHash,
     created_at: new Date().toISOString(),
     creator_address: null,
+    msg_sender: txData.deployer || null,
     twitter_link: hasTwitter ? txData.tweetUrl : null,
     farcaster_link: hasFarcasterFid ? txData.messageId : null,
     cast_hash: castHash, // Cast hash for Farcaster deploys
     website_link: null,
     telegram_link: null,
     discord_link: null,
-    // Include social_context for both Twitter and Farcaster
+    // Include social_context for all platforms
     social_context: {
-      interface: txData.interface || (hasTwitter ? 'twitter' : 'farcaster'),
-      platform: hasTwitter ? 'X' : 'farcaster',
+      interface: txData.interface || (hasTwitter ? 'twitter' : hasFarcasterFid ? 'farcaster' : 'unknown'),
+      platform: hasTwitter ? 'X' : hasFarcasterFid ? 'farcaster' : (txData.platform || 'unknown'),
       messageId: txData.messageId || txData.tweetUrl || '',
       id: txData.id || '',
-      xUsername: txData.xUsername || null // X username for verified Farcaster users
+      xUsername: txData.xUsername || null
     }
   };
 

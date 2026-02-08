@@ -57,6 +57,9 @@ export interface ClankerToken {
     verified?: boolean;
     champagne?: boolean;
   };
+  recommended?: boolean;
+  recommended_for?: string;
+  duplicate_recommendation?: boolean;
 }
 
 export function getTwitterUsername(url: string): string | null {
@@ -122,6 +125,12 @@ export function getCastUrl(token: ClankerToken): string | null {
   return null;
 }
 
+// Whitelisted deployer addresses (must match railway-listener)
+const WHITELISTED_DEPLOYERS = new Set([
+  "0x2112b8456ac07c15fa31ddf3bf713e77716ff3f9",
+  "0xd9acd656a5f1b519c9e76a2a6092265a74186e58",
+]);
+
 // Blocklisted Twitter usernames (spammers who delete tweets)
 const BLOCKED_USERNAMES: string[] = [
   "dront08",
@@ -182,6 +191,13 @@ export function hasRealSocialContext(token: ClankerToken): boolean {
   // Railway listener already filters for X verification or whitelisted FIDs
   if (castHash && castHash.startsWith("0x")) return true;
 
+  // Farcaster tokens with verified X username (Bankr deploys where messageId isn't a hash)
+  if (token.social_context?.xUsername) return true;
+
+  // Whitelisted deployer - always show (InstaClaw, Basenames, terminal deploys etc.)
+  const deployer = token.msg_sender?.toLowerCase();
+  if (deployer && WHITELISTED_DEPLOYERS.has(deployer)) return true;
+
   // Tokens with 2+ UNIQUE social links (different URLs)
   // Filters out scams where all links point to same URL
   const allSocialLinks = token.socialLinks || [];
@@ -192,4 +208,34 @@ export function hasRealSocialContext(token: ClankerToken): boolean {
   if (uniqueUrls.size >= 2) return true;
 
   return false;
+}
+
+export function detectFeeRecommendation(
+  tweetText: string,
+  replyToUsername: string | null
+): string | null {
+  if (!tweetText || !replyToUsername) return null;
+
+  const text = tweetText.toLowerCase();
+  const replyTo = replyToUsername.toLowerCase().replace(/^@/, "");
+
+  // Match patterns like "fees to @X", "give fees to @X", "send the fees to @X"
+  const feePatterns = [
+    /(?:give|send)\s+(?:the\s+)?(?:all\s+)?fees?\s+to\s+@(\w+)/gi,
+    /fees?\s+to\s+@(\w+)/gi,
+    /(?:give|send)\s+(?:the\s+)?(?:all\s+)?fees?\s+(?:to\s+)?@(\w+)/gi,
+    /@(\w+)\s+(?:gets?\s+(?:the\s+)?fees?|receives?\s+(?:the\s+)?fees?)/gi,
+  ];
+
+  for (const pattern of feePatterns) {
+    pattern.lastIndex = 0;
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      if (match[1].toLowerCase() === replyTo) {
+        return replyToUsername.replace(/^@/, "");
+      }
+    }
+  }
+
+  return null;
 }

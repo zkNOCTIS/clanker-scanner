@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState, useRef } from "react";
 import { useSearchParams } from "next/navigation";
-import { ClankerToken, hasRealSocialContext } from "@/types";
+import { ClankerToken, hasRealSocialContext, getTweetUrl, getTweetId, detectFeeRecommendation } from "@/types";
 import { TokenCard } from "@/components/TokenCard";
 
 export default function Home() {
@@ -82,59 +82,152 @@ function HomeContent() {
     return () => clearInterval(interval);
   }, [tokens]);
 
+  // SSE stream for real-time token updates (with polling fallback)
   useEffect(() => {
     if (!scanning) return;
 
-    async function fetchTokens() {
-      try {
-        // Use webhook endpoint instead of direct Clanker API polling
-        const res = await fetch("/api/webhook");
-        if (!res.ok) {
-          setError(`API error: ${res.status}`);
-          return;
-        }
+    let eventSource: EventSource | null = null;
+    let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+    let sseConnected = false;
 
-        const data = await res.json();
-        const newTokens: ClankerToken[] = data.data || [];
-        console.log(`[Scanner] Fetched ${newTokens.length} tokens from webhook`);
-        setError(null);
+    const processTokens = (incoming: ClankerToken[], isInitialBatch: boolean) => {
+      const unseen = incoming.filter(
+        (t) => !seenRef.current.has(t.contract_address) && !deletedRef.current.has(t.contract_address) && hasRealSocialContext(t)
+      );
 
-        const unseen = newTokens.filter(
-          (t) => !seenRef.current.has(t.contract_address) && !deletedRef.current.has(t.contract_address) && hasRealSocialContext(t)
-        );
-        console.log(`[Scanner] ${unseen.length} tokens passed filter (${newTokens.length - unseen.length} filtered out)`);
-
-        if (newTokens.length > 0 && unseen.length === 0) {
-          console.log('[Scanner] All tokens filtered out! First token:', newTokens[0]);
-          console.log('[Scanner] hasRealSocialContext result:', hasRealSocialContext(newTokens[0]));
-        }
-
-        if (unseen.length > 0) {
-          unseen.forEach((t) => {
-            seenRef.current.add(t.contract_address);
-            // Only mark as "new" if initial load is done (for Twitter stats fetching)
-            if (initialLoadDoneRef.current) {
-              newTokensRef.current.add(t.contract_address);
-            }
-          });
-          setTokens((prev) => [...unseen, ...prev].slice(0, 50));
-
-        }
-
-        // Mark initial load as done after first fetch
-        if (!initialLoadDoneRef.current) {
-          initialLoadDoneRef.current = true;
-        }
-      } catch (e) {
-        console.error('[Scanner] Fetch error:', e);
-        setError(`Network error`);
+      if (unseen.length > 0) {
+        unseen.forEach((t) => {
+          seenRef.current.add(t.contract_address);
+          if (initialLoadDoneRef.current) {
+            newTokensRef.current.add(t.contract_address);
+          }
+        });
+        setTokens((prev) => {
+          const merged = [...unseen, ...prev];
+          const seen = new Set<string>();
+          return merged.filter((t) => {
+            if (seen.has(t.contract_address)) return false;
+            seen.add(t.contract_address);
+            return true;
+          }).slice(0, 50);
+        });
       }
-    }
 
-    fetchTokens();
-    const interval = setInterval(fetchTokens, 1000);
-    return () => clearInterval(interval);
+      if (!initialLoadDoneRef.current) {
+        initialLoadDoneRef.current = true;
+      }
+    };
+
+    const connectSSE = () => {
+      try {
+        eventSource = new EventSource("/api/stream");
+
+        eventSource.addEventListener("init", (e: MessageEvent) => {
+          sseConnected = true;
+          setError(null);
+          if (fallbackInterval) { clearInterval(fallbackInterval); fallbackInterval = null; }
+          const batch: ClankerToken[] = JSON.parse(e.data);
+          console.log(`[SSE] Init: ${batch.length} tokens`);
+          processTokens(batch, true);
+        });
+
+        eventSource.addEventListener("token", (e: MessageEvent) => {
+          sseConnected = true;
+          setError(null);
+          const token: ClankerToken = JSON.parse(e.data);
+          console.log(`[SSE] New: ${token.symbol}`);
+          processTokens([token], false);
+        });
+
+        eventSource.onerror = () => {
+          if (!sseConnected) {
+            console.log("[SSE] Failed to connect, falling back to polling");
+            startFallbackPolling();
+          }
+        };
+      } catch {
+        startFallbackPolling();
+      }
+    };
+
+    const startFallbackPolling = () => {
+      if (fallbackInterval) return;
+      console.log("[Fallback] Starting 1s polling");
+
+      const fetchTokens = async () => {
+        try {
+          const res = await fetch("/api/webhook");
+          if (!res.ok) { setError(`API error: ${res.status}`); return; }
+          const data = await res.json();
+          setError(null);
+          processTokens(data.data || [], !initialLoadDoneRef.current);
+        } catch {
+          setError("Network error");
+        }
+      };
+
+      fetchTokens();
+      fallbackInterval = setInterval(fetchTokens, 1000);
+    };
+
+    connectSSE();
+
+    return () => {
+      if (eventSource) eventSource.close();
+      if (fallbackInterval) clearInterval(fallbackInterval);
+    };
   }, [scanning]);
+
+  // FxTwitter fee recommendation check (async, non-blocking)
+  const checkedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (tokens.length === 0) return;
+
+    const unchecked = tokens.filter(
+      (t) => !checkedRef.current.has(t.contract_address) && getTweetUrl(t)
+    );
+    if (unchecked.length === 0) return;
+
+    const batch = unchecked.slice(0, 3);
+    batch.forEach((token) => {
+      checkedRef.current.add(token.contract_address);
+      const tweetUrl = getTweetUrl(token)!;
+
+      fetch(`/api/tweet-info?url=${encodeURIComponent(tweetUrl)}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (!data?.tweet_text || !data?.reply_to_username) return;
+          const matchedUser = detectFeeRecommendation(data.tweet_text, data.reply_to_username);
+          if (matchedUser) {
+            const tweetId = getTweetId(tweetUrl);
+            setTokens((prev) => {
+              // Check if another token from the same tweet is already recommended
+              const isDuplicate = tweetId
+                ? prev.some(
+                    (t) =>
+                      t.recommended &&
+                      !t.duplicate_recommendation &&
+                      t.contract_address !== token.contract_address &&
+                      getTweetUrl(t) &&
+                      getTweetId(getTweetUrl(t)!) === tweetId
+                  )
+                : false;
+              return prev.map((t) =>
+                t.contract_address === token.contract_address
+                  ? {
+                      ...t,
+                      recommended: true,
+                      recommended_for: matchedUser,
+                      duplicate_recommendation: isDuplicate,
+                    }
+                  : t
+              );
+            });
+          }
+        })
+        .catch(() => {});
+    });
+  }, [tokens]);
 
   return (
     <main className="min-h-screen bg-[#0d1117]">

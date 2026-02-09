@@ -226,6 +226,9 @@ export function detectFeeRecommendation(
         if (/(?:don'?t|do\s+not)\s/.test(before)) return null;
         // Block partial fee splits (half, some, partial) — only all fees = purple
         if (/(?:half|some|partial)\s+fees?/i.test(text)) return null;
+        // Block if tweet has filler wall (dots, dashes, newlines) — hiding scam below fold
+        const stripped = text.replace(/[\s.\-\u2022\u2013\u2014|,_]/g, "");
+        if (stripped.length < text.length * 0.5) return null;
         // Check entire tweet for cancel/retract phrases (hidden after dots/newlines)
         const negWords = /cancel|jk|just\s+kidding|nevermind|nvm|sike|psych|scratch\s+that|actually\s+no|wait\s+no|not\s+really|ignore/i;
         if (negWords.test(text)) return null;

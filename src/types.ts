@@ -224,8 +224,9 @@ export function detectFeeRecommendation(
         // Check for negation before the match (e.g. "don't direct fees")
         const before = text.slice(Math.max(0, match.index - 50), match.index);
         if (/(?:don'?t|do\s+not)\s/.test(before)) return null;
-        // Check entire tweet for cancel/negation phrases (hidden after dots/newlines)
-        if (/cancel.*fees|cancel.*sending/i.test(text)) return null;
+        // Check entire tweet for cancel/retract phrases (hidden after dots/newlines)
+        if (/(?:cancel|jk|just\s+kidding|nevermind|nvm|sike|psych|scratch\s+that).*(?:fee|send)/i.test(text)) return null;
+        if (/(?:don'?t|do\s+not|actually\s+no|wait\s+no|not\s+really|ignore).*(?:fee|send)/i.test(text)) return null;
         return replyToUsername.replace(/^@/, "");
       }
     }

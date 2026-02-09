@@ -210,9 +210,9 @@ export function detectFeeRecommendation(
 
   // Match patterns like "fees to @X", "give fees to @X", "redirect fees and admin to X"
   const feePatterns = [
-    /(?:give|send|direct|redirect)\s+(?:the\s+)?(?:all\s+)?fees?\s+too?\s+@?(\w+)/gi,
-    /fees?\s+(?:[\w\s]{0,20}\s+)?too?\s+@?(\w+)/gi,
-    /(?:give|send|direct|redirect)\s+(?:the\s+)?(?:all\s+)?fees?\s+(?:[\w\s]{0,20}\s+)?(?:too?\s+)?(?:for\s+)?@?(\w+)/gi,
+    /(?:give|send|set|direct|redirect)\s+(?:the\s+)?(?:(?:all|half)\s+)?fees?\s+too?\s+@?(\w+)/gi,
+    /fees?\s+(?:and\s+\w+\s+)?too?\s+@?(\w+)/gi,
+    /(?:give|send|set|direct|redirect)\s+(?:the\s+)?(?:(?:all|half)\s+)?fees?\s+(?:and\s+\w+\s+)?(?:too?\s+)?(?:for\s+)?@?(\w+)/gi,
     /@(\w+)\s+(?:gets?\s+(?:the\s+)?fees?|receives?\s+(?:the\s+)?fees?)/gi,
   ];
 

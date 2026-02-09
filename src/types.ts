@@ -221,10 +221,11 @@ export function detectFeeRecommendation(
     let match;
     while ((match = pattern.exec(text)) !== null) {
       if (match[1].toLowerCase() === replyTo) {
-        // Check for negation words before the match (e.g. "don't direct fees")
-        // Use full text before match to catch "Don't direct all fees to @X"
+        // Check for negation before the match (e.g. "don't direct fees")
         const before = text.slice(Math.max(0, match.index - 50), match.index);
         if (/(?:don'?t|do\s+not)\s/.test(before)) return null;
+        // Check entire tweet for cancel/negation phrases (hidden after dots/newlines)
+        if (/cancel.*fees|cancel.*sending/i.test(text)) return null;
         return replyToUsername.replace(/^@/, "");
       }
     }

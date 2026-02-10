@@ -202,7 +202,7 @@ function HomeContent() {
       const gateways = [
         `https://ipfs.io/ipfs/${token.ipfs_cid}`,
         `https://dweb.link/ipfs/${token.ipfs_cid}`,
-        `https://gateway.pinata.cloud/ipfs/${token.ipfs_cid}`
+        `https://nftstorage.link/ipfs/${token.ipfs_cid}`
       ];
 
       // Try all gateways and take the first valid one

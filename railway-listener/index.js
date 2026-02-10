@@ -107,7 +107,7 @@ async function fetchIpfsMetadata(ipfsCid) {
   const gateways = [
     'https://ipfs.io/ipfs/',
     'https://dweb.link/ipfs/',
-    'https://gateway.pinata.cloud/ipfs/'
+    'https://nftstorage.link/ipfs/'
   ];
 
   return Promise.any(

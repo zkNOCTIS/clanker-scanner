@@ -103,8 +103,8 @@ function HomeContent() {
     // Fetch immediately when token list changes
     fetchAllMcaps();
 
-    // Then fetch every 3 seconds to update mcaps
-    const interval = setInterval(fetchAllMcaps, 3000);
+    // Then fetch every 1 second to update mcaps
+    const interval = setInterval(fetchAllMcaps, 1000);
     return () => {
       clearInterval(interval);
       abortController.abort();
@@ -398,6 +398,7 @@ function HomeContent() {
                       shouldFetchStats={newTokensRef.current.has(token.contract_address)}
                       walletKey={walletKey}
                       buyAmount={buyAmount}
+                      mcap={mcaps[token.contract_address] ?? null}
                     />
                   </div>
                 ))}

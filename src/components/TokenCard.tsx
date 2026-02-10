@@ -20,10 +20,10 @@ function formatTimeAgo(dateStr: string): string {
 }
 
 
-export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = false, walletKey = null, buyAmount = "0.005" }: { token: ClankerToken; isLatest?: boolean; onTweetDeleted?: () => void; shouldFetchStats?: boolean; walletKey?: string | null; buyAmount?: string }) {
+export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = false, walletKey = null, buyAmount = "0.005", mcap = null }: { token: ClankerToken; isLatest?: boolean; onTweetDeleted?: () => void; shouldFetchStats?: boolean; walletKey?: string | null; buyAmount?: string; mcap?: number | null }) {
   const [copied, setCopied] = useState(false);
   const [, setTick] = useState(0);
-  const [buyState, setBuyState] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [buyState, setBuyState] = useState<"idle" | "sending" | "pending" | "confirmed" | "reverted" | "error">("idle");
   const [txHash, setTxHash] = useState<string | null>(null);
   const [buyError, setBuyError] = useState<string | null>(null);
   const [twitterStats, setTwitterStats] = useState<{
@@ -137,7 +137,14 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
               )}
             </div>
             <h2 className="text-2xl font-mono font-bold text-[#00d9ff] truncate">{token.name}</h2>
-            <p className="text-lg font-mono text-[#00ff88]">${token.symbol}</p>
+            <div className="flex items-center gap-3">
+              <p className="text-lg font-mono text-[#00ff88]">${token.symbol}</p>
+              {mcap !== null && (
+                <span className={`text-lg font-mono font-bold ${mcap >= 25000 ? 'text-[#00ff88]' : 'text-yellow-400'}`}>
+                  MC: ${mcap >= 1000000 ? (mcap / 1000000).toFixed(1) + 'M' : mcap >= 1000 ? (mcap / 1000).toFixed(1) + 'K' : mcap.toFixed(0)}
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Right side - Twitter stats only */}
@@ -225,12 +232,32 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
         {walletKey ? (
           <button
             onClick={async () => {
-              if (buyState === "sending") return;
+              if (buyState === "sending" || buyState === "pending") return;
               setBuyState("sending");
               try {
                 const hash = await executeBuy(walletKey, token.contract_address, buyAmount);
                 setTxHash(hash);
-                setBuyState("sent");
+                setBuyState("pending");
+                // Poll for receipt
+                const rpc = "https://mainnet.base.org";
+                for (let i = 0; i < 30; i++) {
+                  await new Promise(r => setTimeout(r, 1000));
+                  try {
+                    const res = await fetch(rpc, {
+                      method: "POST", headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getTransactionReceipt", params: [hash] }),
+                    });
+                    const json = await res.json();
+                    if (json.result) {
+                      const success = json.result.status === "0x1";
+                      setBuyState(success ? "confirmed" : "reverted");
+                      setTimeout(() => setBuyState("idle"), 10000);
+                      return;
+                    }
+                  } catch {}
+                }
+                // Timed out waiting, still show hash
+                setBuyState("confirmed");
                 setTimeout(() => setBuyState("idle"), 10000);
               } catch (e: any) {
                 setBuyError(e.message?.slice(0, 60) || "Transaction failed");
@@ -238,21 +265,35 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
                 setTimeout(() => { setBuyState("idle"); setBuyError(null); }, 5000);
               }
             }}
-            disabled={buyState === "sending"}
+            disabled={buyState === "sending" || buyState === "pending"}
             className={`mt-3 flex items-center justify-center gap-2 w-full py-2.5 rounded font-semibold text-sm transition-colors ${
-              buyState === "sent"
+              buyState === "confirmed"
                 ? "bg-[#00ff88]/20 border border-[#00ff88]/50 text-[#00ff88]"
+                : buyState === "reverted"
+                ? "bg-red-500/20 border border-red-500/50 text-red-400"
                 : buyState === "error"
                 ? "bg-red-500/20 border border-red-500/50 text-red-400"
                 : buyState === "sending"
+                ? "bg-yellow-500/20 border border-yellow-500/50 text-yellow-400 cursor-wait"
+                : buyState === "pending"
                 ? "bg-yellow-500/20 border border-yellow-500/50 text-yellow-400 cursor-wait"
                 : "bg-[#00ff88]/10 border border-[#00ff88]/30 text-[#00ff88] hover:bg-[#00ff88]/20"
             }`}
           >
             {buyState === "sending" && "SENDING..."}
-            {buyState === "sent" && txHash && (
+            {buyState === "pending" && txHash && (
               <a href={`https://basescan.org/tx/${txHash}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
-                SENT! View tx &rarr;
+                PENDING... View tx &rarr;
+              </a>
+            )}
+            {buyState === "confirmed" && txHash && (
+              <a href={`https://basescan.org/tx/${txHash}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+                CONFIRMED! View tx &rarr;
+              </a>
+            )}
+            {buyState === "reverted" && txHash && (
+              <a href={`https://basescan.org/tx/${txHash}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+                REVERTED! View tx &rarr;
               </a>
             )}
             {buyState === "error" && `FAILED: ${buyError}`}

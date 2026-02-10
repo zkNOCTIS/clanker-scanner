@@ -429,7 +429,7 @@ function HomeContent() {
                         <div className={`font-mono text-sm truncate ${token.recommended && !token.duplicate_recommendation ? "text-[#a855f7]" : "text-white"}`}>${token.symbol}</div>
                         <div className="font-mono text-xs text-gray-500">{timeStr} ago</div>
                       </div>
-                      <span className={`font-mono text-xs ${mcaps[token.contract_address] >= 30000 ? 'text-[#00ff88]' : 'text-yellow-400'
+                      <span className={`font-mono text-xs ${mcaps[token.contract_address] >= 35000 ? 'text-[#00ff88]' : 'text-yellow-400'
                         }`}>
                         {mcaps[token.contract_address]
                           ? `$${mcaps[token.contract_address] >= 1000000

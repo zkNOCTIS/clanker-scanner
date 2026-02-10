@@ -442,10 +442,10 @@ async function handleWhetstonEvent(log) {
 
   console.log(`\n🔷 [WHETSTONE] ${parsed.symbol || '?'} | ${parsed.tokenAddress.slice(0,10)}... | Block ${log.blockNumber}`);
 
-  // Only allow known legitimate interfaces — reject everything else
+  // Only allow Bankr interface — reject everything else
   const iface = (parsed.interface || '').toLowerCase();
-  if (iface !== 'bankr' && iface !== 'clanker') {
-    console.log(`   ⚠️  Unknown interface "${parsed.interface || 'none'}", skipping`);
+  if (iface !== 'bankr') {
+    console.log(`   ⚠️  Interface "${parsed.interface || 'none'}" not Bankr, skipping`);
     return;
   }
 
@@ -520,62 +520,24 @@ async function startListener() {
     const network = await provider.getNetwork();
     console.log(`✅ Connected to network: ${network.name} (chainId: ${network.chainId})`);
 
-    console.log(`📡 Listening to Clanker Factory: ${CLANKER_FACTORY}`);
-
-    const filter = {
-      address: CLANKER_FACTORY
-    };
-
-    contract = new ethers.Contract(CLANKER_FACTORY, FACTORY_ABI, provider);
-
-    provider.on(filter, async (log) => {
-      const eventStart = Date.now();
-
-      try {
-        if (log.topics.length < 2) return;
-
-        const tokenAddress = '0x' + log.topics[1].slice(26);
-
-        // ABI decode name/symbol from log.data (no RPC)
-        let name, symbol;
-        try {
-          const decoded = ethers.AbiCoder.defaultAbiCoder().decode(["string", "string"], log.data);
-          name = decoded[0];
-          symbol = decoded[1];
-        } catch {
-          const tokenContract = new ethers.Contract(
-            tokenAddress,
-            ['function name() view returns (string)', 'function symbol() view returns (string)'],
-            provider
-          );
-          [name, symbol] = await Promise.all([tokenContract.name(), tokenContract.symbol()]);
-        }
-
-        await handleTokenCreated(tokenAddress, name, symbol, log.transactionHash, { blockNumber: log.blockNumber });
-
-        console.log(`   ⏱ ${Date.now() - eventStart}ms total`);
-      } catch (error) {
-        console.error('❌ Event error:', error.message);
-      }
-    });
-
-    // Whetstone factory listener (Bankr + new Clanker deploys)
+    // Whetstone factory only — Bankr deploys
     const whetstonFilter = {
-      address: WHETSTONE_FACTORY,
-      topics: [WHETSTONE_TOPIC]
+      address: WHETSTONE_FACTORY
     };
 
     console.log(`📡 Listening to Whetstone Factory: ${WHETSTONE_FACTORY}`);
 
     provider.on(whetstonFilter, async (log) => {
       try {
+        // Only process our specific event topic
+        if (log.topics[0] !== WHETSTONE_TOPIC) return;
         await handleWhetstonEvent(log);
       } catch (error) {
         console.error('❌ Whetstone event error:', error.message);
       }
     });
 
-    console.log('👂 Listening for events from both factories...\n');
+    console.log('👂 Listening for Bankr tokens via Whetstone...\n');
 
     // Reset reconnect attempts on successful connection
     reconnectAttempts = 0;
@@ -653,11 +615,6 @@ WSS_URLS.forEach((url, i) => {
   console.log(`   ${i === 0 ? 'Primary' : 'Backup'}: ${url}`);
 });
 
-if (!CLANKER_FACTORY) {
-  console.error('❌ CLANKER_FACTORY environment variable is required');
-  process.exit(1);
-}
-
 // Start the listener
-console.log('🎯 Clanker Token Listener Starting...\n');
+console.log('🎯 Bankr Token Scanner Starting...\n');
 startListener();

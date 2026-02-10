@@ -22,41 +22,48 @@ function encodeV4Swap(tokenAddress: string, amountInWei: bigint): string {
   const weth = ethers.getAddress(WETH);
   const token = ethers.getAddress(tokenAddress);
 
-  // Sort for PoolKey — currency0 must be the smaller address
   const [currency0, currency1] =
     BigInt(weth) < BigInt(token) ? [weth, token] : [token, weth];
-  const zeroForOne = currency0 === weth; // true = selling WETH (currency0) for token
+  const zeroForOne = currency0 === weth;
 
-  // 0x06 SWAP_EXACT_IN_SINGLE
-  // ExactInputSingleParams is a struct with dynamic `bytes hookData` — must encode as tuple (adds 0x20 offset prefix)
+  const ADDRESS_THIS = '0x0000000000000000000000000000000000000002';
+  const CONTRACT_BALANCE = 1n << 255n;
+
+  // Router cmd 0x0b: WRAP_ETH — wrap native ETH → WETH, router keeps it
+  const wrapEthInput = abiCoder.encode(
+    ['address', 'uint256'],
+    [ADDRESS_THIS, amountInWei]
+  );
+
+  // V4 action 0x0b: SETTLE — router settles WETH from its own balance
+  const settleParams = abiCoder.encode(
+    ['address', 'uint256', 'bool'],
+    [weth, CONTRACT_BALANCE, false]
+  );
+
+  // V4 action 0x06: SWAP_EXACT_IN_SINGLE
   const swapParams = abiCoder.encode(
     ['(address,address,uint24,int24,address,bool,uint128,uint128,bytes)'],
     [[currency0, currency1, FEE, TICK_SPACING, CLANKER_HOOK, zeroForOne, amountInWei, 0, '0x00']]
   );
 
-  // 0x0c SETTLE_ALL: (address currency, uint128 maxAmount)
-  const settleParams = abiCoder.encode(
-    ['address', 'uint128'],
-    [weth, amountInWei]
-  );
-
-  // 0x0f TAKE_ALL: (address currency, uint128 minAmount)
+  // V4 action 0x0f: TAKE_ALL — take output tokens to msg.sender
   const takeParams = abiCoder.encode(
     ['address', 'uint128'],
     [token, 0]
   );
 
-  // V4_SWAP input: (bytes actions, bytes[] params)
+  // V4_SWAP: SETTLE → SWAP → TAKE_ALL
   const v4SwapInput = abiCoder.encode(
     ['bytes', 'bytes[]'],
-    ['0x060c0f', [swapParams, settleParams, takeParams]]
+    ['0x0b060f', [settleParams, swapParams, takeParams]]
   );
 
   const deadline = Math.floor(Date.now() / 1000) + 120;
 
   return executeIface.encodeFunctionData('execute', [
-    '0x10',        // commands: V4_SWAP
-    [v4SwapInput], // inputs
+    '0x0b10',                    // commands: WRAP_ETH + V4_SWAP
+    [wrapEthInput, v4SwapInput], // inputs
     deadline,
   ]);
 }

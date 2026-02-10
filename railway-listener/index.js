@@ -442,15 +442,16 @@ async function handleWhetstonEvent(log) {
 
   console.log(`\n🔷 [WHETSTONE] ${parsed.symbol || '?'} | ${parsed.tokenAddress.slice(0,10)}... | Block ${log.blockNumber}`);
 
-  // Skip tokens with no social context at all
-  if (!parsed.tweetUrl && !parsed.messageId) {
-    console.log('   ⚠️  No social context, skipping');
+  // Only allow known legitimate interfaces — reject everything else
+  const iface = (parsed.interface || '').toLowerCase();
+  if (iface !== 'bankr' && iface !== 'clanker') {
+    console.log(`   ⚠️  Unknown interface "${parsed.interface || 'none'}", skipping`);
     return;
   }
 
-  // Skip Clank.fun deploys
-  if (parsed.interface && parsed.interface.toLowerCase() === 'clank.fun') {
-    console.log('   ⚠️  Clank.fun deploy, skipping');
+  // Must have social context (tweet URL or Farcaster cast)
+  if (!parsed.tweetUrl && !parsed.messageId) {
+    console.log('   ⚠️  No social context, skipping');
     return;
   }
 

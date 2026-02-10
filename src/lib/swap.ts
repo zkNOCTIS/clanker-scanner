@@ -28,10 +28,10 @@ function encodeV4Swap(tokenAddress: string, amountInWei: bigint): string {
   const zeroForOne = currency0 === weth; // true = selling WETH (currency0) for token
 
   // 0x06 SWAP_EXACT_IN_SINGLE
-  // ExactInputSingleParams: (PoolKey(c0,c1,fee,tickSpacing,hooks), zeroForOne, amountIn, amountOutMinimum, hookData)
+  // ExactInputSingleParams is a struct with dynamic `bytes hookData` — must encode as tuple (adds 0x20 offset prefix)
   const swapParams = abiCoder.encode(
-    ['address', 'address', 'uint24', 'int24', 'address', 'bool', 'uint128', 'uint128', 'bytes'],
-    [currency0, currency1, FEE, TICK_SPACING, CLANKER_HOOK, zeroForOne, amountInWei, 0, '0x00']
+    ['(address,address,uint24,int24,address,bool,uint128,uint128,bytes)'],
+    [[currency0, currency1, FEE, TICK_SPACING, CLANKER_HOOK, zeroForOne, amountInWei, 0, '0x00']]
   );
 
   // 0x0c SETTLE_ALL: (address currency, uint128 maxAmount)

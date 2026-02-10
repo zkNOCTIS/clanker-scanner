@@ -267,33 +267,8 @@ async function handleWhetstonEvent(log) {
     return;
   }
 
-  // Must have tweet URL
-  if (!parsed.tweetUrl && !parsed.messageId) {
-    console.log('   ⚠️  No social context, skipping');
-    return;
-  }
-
   const serverNow = new Date().toISOString();
   const hasTwitter = !!parsed.tweetUrl;
-  const hasFarcasterFid = !!parsed.id && /^\d+$/.test(parsed.id) && parsed.platform?.toLowerCase() === 'farcaster';
-
-  if (!hasTwitter && hasFarcasterFid) {
-    if (BLACKLISTED_FARCASTER_FIDS.has(parsed.id)) return;
-
-    if (!WHITELISTED_FARCASTER_FIDS.has(parsed.id)) {
-      const neynarStart = Date.now();
-      const xVerification = await checkFarcasterUserHasX(parsed.id);
-      console.log(`   ⏱ neynar: ${Date.now() - neynarStart}ms ${neynarCache.has(parsed.id) ? '[CACHED]' : '[API]'}`);
-      if (!xVerification.hasLinkedX) return;
-      parsed.xUsername = xVerification.xUsername;
-    }
-  } else if (!hasTwitter) {
-    return;
-  }
-
-  const castHash = hasFarcasterFid && parsed.messageId && parsed.messageId.startsWith('0x')
-    ? parsed.messageId
-    : null;
 
   const tokenData = {
     contract_address: parsed.tokenAddress,
@@ -306,8 +281,8 @@ async function handleWhetstonEvent(log) {
     creator_address: parsed.creatorAddress,
     msg_sender: parsed.creatorAddress,
     twitter_link: hasTwitter ? parsed.tweetUrl : null,
-    farcaster_link: hasFarcasterFid ? parsed.messageId : null,
-    cast_hash: castHash,
+    farcaster_link: null,
+    cast_hash: null,
     website_link: null,
     telegram_link: null,
     discord_link: null,

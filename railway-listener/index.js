@@ -9,14 +9,6 @@ const WSS_URLS = [
   process.env.WSS_URL_BACKUP     // Backup RPC (optional)
 ].filter(Boolean); // Remove undefined/null entries
 
-// Whetstone factory (Bankr deploys)
-const WHETSTONE_FACTORY = '0xE85A59c628F7d27878ACeB4bf3b35733630083a9';
-const WHETSTONE_TOPIC = '0x9299d1d1a88d8e1abdc591ae7a167a6bc63a8f17d695804e9091ee33aa89fb67';
-
-// ERC-4337 EntryPoint — legitimate Bankr deploys go through this
-// Terminal scammers call whetstone factory directly, bypassing EntryPoint
-const ENTRYPOINT_ADDRESS = '0x0000000071727De22E5E9d8BAf0edAc6f37da032';
-
 // In-memory token buffer
 const recentTokens = []; // Most recent first
 const MAX_TOKENS = 50;
@@ -102,6 +94,37 @@ let provider;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
 
+// Extract IPFS CID from hex calldata
+function extractIpfsCid(data) {
+  const hex = data.startsWith('0x') ? data.slice(2) : data;
+  const ipfsIdx = hex.indexOf(IPFS_PREFIX_HEX);
+  if (ipfsIdx === -1) return null;
+
+  let ipfs = '';
+  for (let i = ipfsIdx; i < hex.length; i += 2) {
+    const byte = parseInt(hex.slice(i, i + 2), 16);
+    if (byte >= 32 && byte <= 126) {
+      ipfs += String.fromCharCode(byte);
+    } else {
+      break;
+    }
+  }
+  return ipfs.replace('ipfs://', '') || null;
+}
+
+// Find deployed token address from receipt Transfer(0x0 → X) mint event
+function extractTokenAddress(receipt) {
+  if (!receipt || !receipt.logs) return null;
+  const transferTopic = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+  const zeroTopic = '0x0000000000000000000000000000000000000000000000000000000000000000';
+  for (const log of receipt.logs) {
+    if (log.topics[0] === transferTopic && log.topics[1] === zeroTopic) {
+      return log.address;
+    }
+  }
+  return null;
+}
+
 // Fetch IPFS metadata from multiple gateways (race for fastest)
 async function fetchIpfsMetadata(ipfsCid) {
   const gateways = [
@@ -120,114 +143,6 @@ async function fetchIpfsMetadata(ipfsCid) {
   );
 }
 
-// Process raw transaction to find IPFS CID and deployed token
-async function processRawTransaction(tx, data, receipt) {
-  try {
-    const hex = data.startsWith('0x') ? data.slice(2) : data;
-    const ipfsIdx = hex.indexOf(IPFS_PREFIX_HEX);
-
-    if (ipfsIdx !== -1) {
-      let ipfs = "";
-      for (let i = ipfsIdx; i < hex.length; i += 2) {
-        const byte = parseInt(hex.slice(i, i + 2), 16);
-        if (byte >= 32 && byte <= 126) {
-          ipfs += String.fromCharCode(byte);
-        } else {
-          break;
-        }
-      }
-
-      // Find deployed token address from logs
-      let createdToken = "Unknown";
-      if (receipt && receipt.logs) {
-        const transferTopic = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
-        const zeroAddressTopic = '0x0000000000000000000000000000000000000000000000000000000000000000';
-
-        for (const log of receipt.logs) {
-          if (log.topics[0] === transferTopic && log.topics[1] === zeroAddressTopic) {
-            createdToken = log.address;
-            break;
-          }
-        }
-      }
-
-      // Verify we found a valid token address
-      if (createdToken === "Unknown") {
-        console.log('⚠️ Could not find deployed token address in logs. Skipping.');
-        console.log('\x1b[35m%s\x1b[0m', '----------------------------------------');
-        return;
-      }
-
-      console.log(`Token:  ${createdToken}`);
-      console.log(`IPFS:   ${ipfs}`);
-      console.log(`Tx:     https://basescan.org/tx/${tx.hash}`);
-
-      const ipfsCid = ipfs.replace('ipfs://', '');
-      const serverNow = new Date().toISOString();
-
-      // Fetch IPFS metadata on Railway — validates tweet URL before broadcasting
-      // This is faster than browser-side fetch because it starts immediately
-      try {
-        const { data: ipfsData, gatewayBase } = await fetchIpfsMetadata(ipfsCid);
-        const tweetUrl = ipfsData.tweet_url || '';
-        const isValidTweet = tweetUrl.includes('twitter.com') || tweetUrl.includes('x.com');
-
-        if (!isValidTweet) {
-          console.log(`⚠️ Skipping (no valid tweet URL): ${createdToken}`);
-          console.log('\x1b[35m%s\x1b[0m', '----------------------------------------');
-          return;
-        }
-
-        // Build image URL using the winning gateway
-        const imageUrl = ipfsData.image
-          ? ipfsData.image.replace('ipfs://', gatewayBase)
-          : null;
-
-        const tokenData = {
-          contract_address: createdToken,
-          name: ipfsData.name || "Unknown",
-          symbol: ipfsData.symbol || "???",
-          ipfs_cid: ipfsCid,
-          tx_hash: tx.hash,
-          created_at: serverNow,
-          creator_address: tx.from,
-          image_url: imageUrl,
-          description: ipfsData.description || null,
-          twitter_link: tweetUrl,
-          social_context: {
-            interface: "Bankr",
-            platform: "X",
-            messageId: tweetUrl
-          }
-        };
-
-        broadcastToken(tokenData);
-        console.log(`✅ ${ipfsData.name} ($${ipfsData.symbol}) — tweet validated`);
-      } catch (ipfsErr) {
-        console.error(`⚠️ IPFS fetch failed for ${ipfsCid}: ${ipfsErr.message || ipfsErr}`);
-        // Broadcast partial as fallback — browser can retry IPFS fetch
-        const tokenData = {
-          contract_address: createdToken,
-          name: "Loading...",
-          symbol: "...",
-          ipfs_cid: ipfsCid,
-          tx_hash: tx.hash,
-          created_at: serverNow,
-          creator_address: tx.from,
-          image_url: null,
-          description: null,
-          twitter_link: null,
-        };
-        broadcastToken(tokenData);
-      }
-
-      console.log('\x1b[35m%s\x1b[0m', '----------------------------------------');
-    }
-  } catch (e) {
-    console.error('Error extraction:', e.message);
-  }
-}
-
 async function startListener() {
   try {
     const currentUrl = WSS_URLS[currentUrlIndex];
@@ -237,7 +152,7 @@ async function startListener() {
     provider = new ethers.WebSocketProvider(currentUrl);
 
     provider.on('block', async (blockNumber) => {
-      //console.log(`New block received: ${blockNumber}`);
+      const t0 = performance.now();
       try {
         const block = await provider.send('eth_getBlockByNumber', [
           ethers.toBeHex(blockNumber),
@@ -245,15 +160,100 @@ async function startListener() {
         ]);
 
         if (!block || !block.transactions) return;
+        const tBlock = performance.now();
 
+        // Find matching txs first, then process all in parallel
+        const matches = [];
         for (const tx of block.transactions) {
           const data = tx.input || tx.data || '';
           if (data.includes(TARGET_SELECTOR) && data.includes(IPFS_PREFIX_HEX)) {
-            // Fetch receipt to find created token
-            const receipt = await provider.send('eth_getTransactionReceipt', [tx.hash]);
-            processRawTransaction(tx, data, receipt);
+            const ipfsCid = extractIpfsCid(data);
+            if (ipfsCid) matches.push({ tx, data, ipfsCid });
           }
         }
+
+        if (matches.length === 0) return;
+        console.log(`\n⚡ Block ${blockNumber}: ${matches.length} deploy(s) found (block fetch: ${(tBlock - t0).toFixed(0)}ms)`);
+
+        // Process all matching txs in parallel
+        await Promise.all(matches.map(async ({ tx, data, ipfsCid }) => {
+          try {
+            const tFetch = performance.now();
+
+            // PARALLEL: receipt + IPFS at the same time
+            const [receipt, ipfsResult] = await Promise.all([
+              provider.send('eth_getTransactionReceipt', [tx.hash]),
+              fetchIpfsMetadata(ipfsCid).catch(() => null)
+            ]);
+
+            const tDone = performance.now();
+            const createdToken = extractTokenAddress(receipt);
+
+            if (!createdToken) {
+              console.log('⚠️ No token address in logs. Skipping.');
+              return;
+            }
+
+            console.log(`Token:  ${createdToken}`);
+            console.log(`IPFS:   ipfs://${ipfsCid}`);
+            console.log(`Tx:     https://basescan.org/tx/${tx.hash}`);
+            console.log(`⏱️  Receipt+IPFS parallel: ${(tDone - tFetch).toFixed(0)}ms | Total from block: ${(tDone - t0).toFixed(0)}ms`);
+
+            const serverNow = new Date().toISOString();
+
+            if (ipfsResult) {
+              const { data: ipfsData, gatewayBase } = ipfsResult;
+              const tweetUrl = ipfsData.tweet_url || '';
+              const isValidTweet = tweetUrl.includes('twitter.com') || tweetUrl.includes('x.com');
+
+              if (!isValidTweet) {
+                console.log(`⚠️ Skipping (no valid tweet URL): ${createdToken}`);
+                console.log('\x1b[35m%s\x1b[0m', '----------------------------------------');
+                return;
+              }
+
+              const imageUrl = ipfsData.image
+                ? ipfsData.image.replace('ipfs://', gatewayBase)
+                : null;
+
+              broadcastToken({
+                contract_address: createdToken,
+                name: ipfsData.name || "Unknown",
+                symbol: ipfsData.symbol || "???",
+                ipfs_cid: ipfsCid,
+                tx_hash: tx.hash,
+                created_at: serverNow,
+                creator_address: tx.from,
+                image_url: imageUrl,
+                description: ipfsData.description || null,
+                twitter_link: tweetUrl,
+                social_context: {
+                  interface: "Bankr",
+                  platform: "X",
+                  messageId: tweetUrl
+                }
+              });
+              console.log(`✅ ${ipfsData.name} ($${ipfsData.symbol}) — ${(performance.now() - t0).toFixed(0)}ms total`);
+            } else {
+              console.error(`⚠️ IPFS fetch failed for ${ipfsCid}`);
+              broadcastToken({
+                contract_address: createdToken,
+                name: "Loading...",
+                symbol: "...",
+                ipfs_cid: ipfsCid,
+                tx_hash: tx.hash,
+                created_at: serverNow,
+                creator_address: tx.from,
+                image_url: null,
+                description: null,
+                twitter_link: null,
+              });
+            }
+            console.log('\x1b[35m%s\x1b[0m', '----------------------------------------');
+          } catch (e) {
+            console.error('Error processing tx:', e.message);
+          }
+        }));
       } catch (error) {
         console.error(`Error processing block ${blockNumber}:`, error.message);
       }

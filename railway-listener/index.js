@@ -10,22 +10,16 @@ const WSS_URLS = [
   process.env.WSS_URL_BACKUP     // Backup RPC (optional)
 ].filter(Boolean); // Remove undefined/null entries
 
-const CLANKER_FACTORY = process.env.CLANKER_FACTORY; // Clanker factory contract address
 const NEYNAR_API_KEY = process.env.NEYNAR_API_KEY; // Neynar API for Farcaster verification
 
-// Whetstone factory (new unified factory for Bankr + Clanker deploys)
+// Whetstone factory (Bankr deploys)
 const WHETSTONE_FACTORY = '0xE85A59c628F7d27878ACeB4bf3b35733630083a9';
 const WHETSTONE_TOPIC = '0x9299d1d1a88d8e1abdc591ae7a167a6bc63a8f17d695804e9091ee33aa89fb67';
 
-// In-memory token buffer (replaces Redis - WebSocket push means no external store needed)
+// In-memory token buffer
 const recentTokens = []; // Most recent first
 const MAX_TOKENS = 50;
-
-// Whitelist of legitimate deployer addresses (lowercase)
-const WHITELISTED_DEPLOYERS = new Set([
-  '0x2112b8456ac07c15fa31ddf3bf713e77716ff3f9',
-  '0xd9acd656a5f1b519c9e76a2a6092265a74186e58'
-]);
+const seenContracts = new Set(); // Dedup — prevent broadcasting same token twice
 
 // Whitelisted Farcaster FIDs - these users can deploy without linked X account
 const WHITELISTED_FARCASTER_FIDS = new Set([
@@ -46,13 +40,18 @@ function cleanupCaches() {
   for (const [fid, entry] of neynarCache) {
     if (now - entry.timestamp > NEYNAR_CACHE_TTL_MS) neynarCache.delete(fid);
   }
+  // Keep seenContracts from growing forever — trim to last 500
+  if (seenContracts.size > 500) {
+    const arr = [...seenContracts];
+    seenContracts.clear();
+    arr.slice(-200).forEach(a => seenContracts.add(a));
+  }
 }
 setInterval(cleanupCaches, 30_000);
 
 // ---- WebSocket Server for direct browser push ----
 const WS_PORT = parseInt(process.env.PORT) || 3001;
 const server = http.createServer((req, res) => {
-  // Health check endpoint
   if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok', clients: wsClients.size }));
@@ -69,7 +68,6 @@ wss.on('connection', (ws) => {
   wsClients.add(ws);
   console.log(`[WS] Client connected (${wsClients.size} total)`);
 
-  // Send recent tokens from in-memory buffer
   if (recentTokens.length > 0) {
     ws.send(JSON.stringify({ type: 'init', tokens: recentTokens }));
   }
@@ -90,7 +88,14 @@ setInterval(() => {
 }, 30_000);
 
 function broadcastToken(tokenData) {
-  // Store in memory buffer
+  // Dedup — skip if we already broadcast this contract address
+  const ca = tokenData.contract_address.toLowerCase();
+  if (seenContracts.has(ca)) {
+    console.log(`[WS] Skipping duplicate ${tokenData.symbol} (${ca.slice(0,10)}...)`);
+    return;
+  }
+  seenContracts.add(ca);
+
   recentTokens.unshift(tokenData);
   if (recentTokens.length > MAX_TOKENS) recentTokens.length = MAX_TOKENS;
 
@@ -105,110 +110,12 @@ server.listen(WS_PORT, () => {
   console.log(`🌐 WebSocket server listening on port ${WS_PORT}`);
 });
 
-let currentUrlIndex = 0; // Track which RPC we're using
-
-// Clanker API for fetching social context
-const CLANKER_API = 'https://www.clanker.world/api/tokens';
-
-// ABI for TokenCreated event
-const FACTORY_ABI = [
-  "event TokenCreated(address indexed token, string name, string symbol, address indexed creator)"
-];
-
+let currentUrlIndex = 0;
 let provider;
-let contract;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
 
-async function fetchTokenDataFromClanker(contractAddress) {
-  try {
-    console.log(`Fetching token data from Clanker API for ${contractAddress}...`);
-
-    // Fetch recent tokens from Clanker API
-    const response = await fetch(`${CLANKER_API}?sort=desc&page=0&limit=50`);
-    const data = await response.json();
-
-    // Find token by contract address
-    const token = data.data?.find(
-      t => t.contract_address?.toLowerCase() === contractAddress.toLowerCase()
-    );
-
-    if (token) {
-      console.log(`Found token data: ${token.symbol} (${token.name})`);
-      return token;
-    }
-
-    console.log(`Token ${contractAddress} not found in Clanker API yet, will retry...`);
-    return null;
-  } catch (error) {
-    console.error('Error fetching from Clanker API:', error.message);
-    return null;
-  }
-}
-
-
-// Pure function: parse calldata from a transaction object (no RPC calls)
-function parseCalldataFromTx(tx) {
-  if (!tx || !tx.data) return null;
-
-  const deployer = tx.from?.toLowerCase() || null;
-  const hexData = tx.data;
-
-  // Convert hex to ASCII and look for JSON patterns
-  let asciiData = '';
-  for (let i = 2; i < hexData.length; i += 2) {
-    const byte = parseInt(hexData.substr(i, 2), 16);
-    if (byte >= 32 && byte <= 126) {
-      asciiData += String.fromCharCode(byte);
-    } else {
-      asciiData += ' ';
-    }
-  }
-
-  const tweetMatch = asciiData.match(/https:\/\/(twitter\.com|x\.com)\/[^"\s]+\/status\/\d+/);
-  const imageMatch = asciiData.match(/https:\/\/pbs\.twimg\.com\/media\/[^\s"]+/);
-  const nameMatch = asciiData.match(/"name":"([^"]+)"/);
-  const symbolMatch = asciiData.match(/"symbol":"([^"]+)"/);
-  const descMatch = asciiData.match(/"description":"([^"]+)"/);
-  const interfaceMatch = asciiData.match(/"interface":"([^"]+)"/);
-  const platformMatch = asciiData.match(/"platform":"([^"]+)"/);
-  const messageIdMatch = asciiData.match(/"messageId":"([^"]+)"/);
-  const idMatch = asciiData.match(/"id":"([^"]+)"/);
-
-  return {
-    tweetUrl: tweetMatch ? tweetMatch[0] : null,
-    imageUrl: imageMatch ? imageMatch[0] : null,
-    name: nameMatch ? nameMatch[1] : null,
-    symbol: symbolMatch ? symbolMatch[1] : null,
-    description: descMatch ? descMatch[1] : null,
-    interface: interfaceMatch ? interfaceMatch[1] : null,
-    platform: platformMatch ? platformMatch[1] : null,
-    messageId: messageIdMatch ? messageIdMatch[1] : null,
-    id: idMatch ? idMatch[1] : null,
-    deployer: deployer
-  };
-}
-
-async function parseTransactionData(txHash) {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const tx = await provider.getTransaction(txHash);
-      if (tx) return parseCalldataFromTx(tx);
-      console.log(`   [RETRY ${attempt + 1}/2] tx null, waiting 30ms...`);
-      await new Promise(r => setTimeout(r, 30));
-    } catch (error) {
-      console.error(`   [RETRY ${attempt + 1}/2] Error: ${error.message}`);
-      await new Promise(r => setTimeout(r, 30));
-    }
-  }
-  console.error('   ❌ Failed to fetch tx after 2 attempts');
-  return null;
-}
-
-// Note: Twitter stats extraction moved to frontend where we can parse the embedded tweet HTML
-
 async function checkFarcasterUserHasX(fid) {
-  // Check Neynar cache first
   const cached = neynarCache.get(fid);
   if (cached) {
     console.log(`   [NEYNAR CACHE] FID ${fid}: hasLinkedX=${cached.hasLinkedX}`);
@@ -251,7 +158,6 @@ async function checkFarcasterUserHasX(fid) {
       xUsername: verifiedXAccount?.username || null
     };
 
-    // Cache the result
     neynarCache.set(fid, { ...result, timestamp: Date.now() });
 
     if (result.hasLinkedX) {
@@ -265,92 +171,6 @@ async function checkFarcasterUserHasX(fid) {
     console.error('Error checking Farcaster user:', error.message);
     return false;
   }
-}
-
-async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
-  const t0 = Date.now();
-  console.log(`\n🚀 ${symbol} | ${tokenAddress.slice(0,10)}... | Block ${event.blockNumber}`);
-
-  // Use server timestamp — saves ~300-500ms vs getBlock() RPC call
-  // On Base L2 (1s blocks), event arrives within ~1-2s of block time, close enough for antibot timer
-  const serverNow = new Date().toISOString();
-
-  const txData = await parseTransactionData(txHash);
-  const t1 = Date.now();
-  console.log(`   ⏱ getTx: ${t1 - t0}ms`);
-
-  if (!txData) {
-    console.log('⚠️  Could not parse transaction data, skipping');
-    return;
-  }
-
-  // Check if deployer is whitelisted
-  if (!txData.deployer || !WHITELISTED_DEPLOYERS.has(txData.deployer)) {
-    console.log(`⚠️  Deployer ${txData.deployer || 'unknown'} not whitelisted, skipping scam`);
-    return;
-  }
-
-  // Skip Clank.fun deploys - no useful social context to display
-  if (txData.interface && txData.interface.toLowerCase() === 'clank.fun') {
-    console.log('⚠️  Clank.fun deploy, skipping (no social context)');
-    return;
-  }
-
-  // Determine platform: Twitter or Farcaster
-  const hasTwitter = !!txData.tweetUrl;
-  const hasFarcasterFid = !!txData.id && /^\d+$/.test(txData.id); // FID is numeric
-
-  if (hasTwitter) {
-    // Twitter/X deploy - proceed immediately
-  } else if (hasFarcasterFid) {
-
-    if (BLACKLISTED_FARCASTER_FIDS.has(txData.id)) return;
-
-    if (WHITELISTED_FARCASTER_FIDS.has(txData.id)) {
-      // Whitelisted FID - bypass X check
-    } else {
-      const neynarStart = Date.now();
-      const xVerification = await checkFarcasterUserHasX(txData.id);
-      console.log(`   ⏱ neynar: ${Date.now() - neynarStart}ms ${neynarCache.has(txData.id) ? '[CACHED]' : '[API]'}`);
-      if (!xVerification.hasLinkedX) return;
-      txData.xUsername = xVerification.xUsername;
-    }
-  } else {
-    return;
-  }
-
-  // Build token data object matching Clanker API format
-  const castHash = hasFarcasterFid && txData.messageId && txData.messageId.startsWith('0x')
-    ? txData.messageId
-    : null;
-
-  const tokenData = {
-    contract_address: tokenAddress,
-    name: name,
-    symbol: symbol,
-    image_url: txData.imageUrl,
-    description: txData.description || '',
-    tx_hash: txHash,
-    created_at: serverNow,
-    creator_address: null,
-    msg_sender: txData.deployer || null,
-    twitter_link: hasTwitter ? txData.tweetUrl : null,
-    farcaster_link: hasFarcasterFid ? txData.messageId : null,
-    cast_hash: castHash,
-    website_link: null,
-    telegram_link: null,
-    discord_link: null,
-    social_context: {
-      interface: txData.interface || (hasTwitter ? 'twitter' : hasFarcasterFid ? 'farcaster' : 'unknown'),
-      platform: hasTwitter ? 'X' : hasFarcasterFid ? 'farcaster' : (txData.platform || 'unknown'),
-      messageId: txData.messageId || txData.tweetUrl || '',
-      id: txData.id || '',
-      xUsername: txData.xUsername || null
-    }
-  };
-
-  // Broadcast via WebSocket (stored in memory buffer + pushed to all clients)
-  broadcastToken(tokenData);
 }
 
 // Parse whetstone factory event data — extracts social context from JSON blocks in event data
@@ -368,8 +188,6 @@ function parseWhetstonEventData(log) {
   }
 
   // Extract name/symbol from ABI-encoded strings in event data
-  // They appear as: 32-byte length slot + 32-byte data slot
-  // Scan for string-length values (1-64) followed by printable ASCII
   let name = '', symbol = '';
   const slotCount = Math.floor(hexData.length / 64);
   for (let i = 10; i < Math.min(slotCount - 1, 25); i++) {
@@ -415,7 +233,7 @@ function parseWhetstonEventData(log) {
     if (tweetMatch) tweetUrl = tweetMatch[0];
   }
 
-  // Extract image from metadata socialMediaUrls or IPFS
+  // Extract image from IPFS
   let imageUrl = null;
   const ipfsMatch = ascii.match(/ipfs:\/\/[a-zA-Z0-9]+/);
   if (ipfsMatch) imageUrl = ipfsMatch[0];
@@ -442,14 +260,14 @@ async function handleWhetstonEvent(log) {
 
   console.log(`\n🔷 [WHETSTONE] ${parsed.symbol || '?'} | ${parsed.tokenAddress.slice(0,10)}... | Block ${log.blockNumber}`);
 
-  // Only allow Bankr interface — reject everything else
+  // Only allow Bankr interface
   const iface = (parsed.interface || '').toLowerCase();
   if (iface !== 'bankr') {
     console.log(`   ⚠️  Interface "${parsed.interface || 'none'}" not Bankr, skipping`);
     return;
   }
 
-  // Must have social context (tweet URL or Farcaster cast)
+  // Must have tweet URL
   if (!parsed.tweetUrl && !parsed.messageId) {
     console.log('   ⚠️  No social context, skipping');
     return;
@@ -459,7 +277,6 @@ async function handleWhetstonEvent(log) {
   const hasTwitter = !!parsed.tweetUrl;
   const hasFarcasterFid = !!parsed.id && /^\d+$/.test(parsed.id) && parsed.platform?.toLowerCase() === 'farcaster';
 
-  // For Farcaster tokens, run the same verification as before
   if (!hasTwitter && hasFarcasterFid) {
     if (BLACKLISTED_FARCASTER_FIDS.has(parsed.id)) return;
 
@@ -471,7 +288,6 @@ async function handleWhetstonEvent(log) {
       parsed.xUsername = xVerification.xUsername;
     }
   } else if (!hasTwitter) {
-    // No tweet URL and not a valid Farcaster deploy
     return;
   }
 
@@ -496,8 +312,8 @@ async function handleWhetstonEvent(log) {
     telegram_link: null,
     discord_link: null,
     social_context: {
-      interface: parsed.interface || (hasTwitter ? 'Bankr' : 'clanker'),
-      platform: hasTwitter ? 'X' : hasFarcasterFid ? 'farcaster' : (parsed.platform || 'unknown'),
+      interface: 'Bankr',
+      platform: hasTwitter ? 'X' : 'farcaster',
       messageId: parsed.messageId || parsed.tweetUrl || '',
       id: parsed.id || '',
       xUsername: parsed.xUsername || null
@@ -516,11 +332,9 @@ async function startListener() {
 
     provider = new ethers.WebSocketProvider(currentUrl);
 
-    // Test connection
     const network = await provider.getNetwork();
     console.log(`✅ Connected to network: ${network.name} (chainId: ${network.chainId})`);
 
-    // Whetstone factory only — Bankr deploys
     const whetstonFilter = {
       address: WHETSTONE_FACTORY
     };
@@ -529,7 +343,6 @@ async function startListener() {
 
     provider.on(whetstonFilter, async (log) => {
       try {
-        // Only process our specific event topic
         if (log.topics[0] !== WHETSTONE_TOPIC) return;
         await handleWhetstonEvent(log);
       } catch (error) {
@@ -539,10 +352,8 @@ async function startListener() {
 
     console.log('👂 Listening for Bankr tokens via Whetstone...\n');
 
-    // Reset reconnect attempts on successful connection
     reconnectAttempts = 0;
 
-    // Handle WebSocket errors
     provider.websocket.on('error', (error) => {
       console.error('WebSocket error:', error.message);
     });
@@ -560,16 +371,14 @@ async function startListener() {
 
 async function reconnect() {
   if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-    // Try switching to backup RPC if available
     if (WSS_URLS.length > 1 && currentUrlIndex < WSS_URLS.length - 1) {
       currentUrlIndex++;
-      reconnectAttempts = 0; // Reset attempts for new URL
+      reconnectAttempts = 0;
       console.log(`⚠️  Switching to backup RPC: ${WSS_URLS[currentUrlIndex]}`);
       setTimeout(startListener, 2000);
       return;
     }
 
-    // If we've tried all URLs, go back to primary and keep trying
     if (currentUrlIndex > 0) {
       currentUrlIndex = 0;
       reconnectAttempts = 0;
@@ -592,14 +401,12 @@ async function reconnect() {
 // Graceful shutdown
 process.on('SIGINT', () => {
   console.log('\n👋 Shutting down gracefully...');
-  console.log(`   Cache stats: neynar=${neynarCache.size}`);
   if (provider) provider.destroy();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
   console.log('\n👋 Shutting down gracefully...');
-  console.log(`   Cache stats: neynar=${neynarCache.size}`);
   if (provider) provider.destroy();
   process.exit(0);
 });
@@ -615,6 +422,5 @@ WSS_URLS.forEach((url, i) => {
   console.log(`   ${i === 0 ? 'Primary' : 'Backup'}: ${url}`);
 });
 
-// Start the listener
 console.log('🎯 Bankr Token Scanner Starting...\n');
 startListener();

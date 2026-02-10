@@ -6,6 +6,7 @@ import { ClankerToken, hasRealSocialContext, getTweetUrl, getTweetId, detectFeeR
 import { TokenCard } from "@/components/TokenCard";
 import { WalletPanel } from "@/components/WalletPanel";
 import { getStoredKey, getBuyAmount } from "@/lib/wallet";
+import { preloadWallet, clearWalletCache } from "@/lib/swap";
 
 export default function Home() {
   return (
@@ -30,10 +31,12 @@ function HomeContent() {
   const [buyAmount, setBuyAmount] = useState("0.005");
   const searchParams = useSearchParams();
 
-  // Load wallet from localStorage on mount
+  // Load wallet from localStorage on mount + preload nonce
   useEffect(() => {
-    setWalletKey(getStoredKey());
+    const key = getStoredKey();
+    setWalletKey(key);
     setBuyAmount(getBuyAmount());
+    if (key) preloadWallet(key);
   }, []);
 
   // Remove token when tweet is detected as deleted
@@ -339,7 +342,11 @@ function HomeContent() {
             <WalletPanel
               walletKey={walletKey}
               buyAmount={buyAmount}
-              onWalletChange={setWalletKey}
+              onWalletChange={(key) => {
+                setWalletKey(key);
+                if (key) preloadWallet(key);
+                else clearWalletCache();
+              }}
               onBuyAmountChange={setBuyAmount}
             />
             <div className="flex items-center gap-2">

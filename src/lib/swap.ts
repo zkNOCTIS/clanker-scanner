@@ -18,6 +18,29 @@ const executeIface = new ethers.Interface([
   'function execute(bytes commands, bytes[] inputs, uint256 deadline)',
 ]);
 
+// --- Pre-cached wallet state (avoids RPC calls on click) ---
+let _wallet: ethers.Wallet | null = null;
+let _nonce: number | null = null;
+let _key: string | null = null;
+
+/** Call once when wallet key is set/changed. Fetches nonce in background. */
+export function preloadWallet(privateKey: string) {
+  if (_key === privateKey && _wallet) return;
+  _key = privateKey;
+  const provider = new ethers.JsonRpcProvider(BASE_RPCS[0], BASE_CHAIN_ID, {
+    staticNetwork: true,
+  });
+  _wallet = new ethers.Wallet(privateKey, provider);
+  _wallet.getNonce().then((n) => { _nonce = n; }).catch(() => {});
+}
+
+/** Call when wallet is disconnected */
+export function clearWalletCache() {
+  _wallet = null;
+  _nonce = null;
+  _key = null;
+}
+
 function encodeV4Swap(tokenAddress: string, amountInWei: bigint): string {
   const weth = ethers.getAddress(WETH);
   const token = ethers.getAddress(tokenAddress);
@@ -68,6 +91,22 @@ function encodeV4Swap(tokenAddress: string, amountInWei: bigint): string {
   ]);
 }
 
+/** Raw JSON-RPC broadcast — faster than ethers' broadcastTransaction */
+async function rawBroadcast(signedTx: string, rpcUrl: string): Promise<string> {
+  const res = await fetch(rpcUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0', id: 1,
+      method: 'eth_sendRawTransaction',
+      params: [signedTx],
+    }),
+  });
+  const json = await res.json();
+  if (json.error) throw new Error(json.error.message);
+  return json.result;
+}
+
 export async function executeBuy(
   privateKey: string,
   tokenAddress: string,
@@ -76,12 +115,16 @@ export async function executeBuy(
   const amountInWei = ethers.parseEther(ethAmount);
   const calldata = encodeV4Swap(tokenAddress, amountInWei);
 
-  // Fetch nonce from fastest RPC
-  const provider = new ethers.JsonRpcProvider(BASE_RPCS[0], BASE_CHAIN_ID, {
-    staticNetwork: true,
-  });
-  const wallet = new ethers.Wallet(privateKey, provider);
-  const nonce = await wallet.getNonce();
+  // Use pre-cached wallet + nonce (zero RPC delay if preloaded)
+  let wallet = _wallet;
+  if (!wallet || _key !== privateKey) {
+    const provider = new ethers.JsonRpcProvider(BASE_RPCS[0], BASE_CHAIN_ID, {
+      staticNetwork: true,
+    });
+    wallet = new ethers.Wallet(privateKey, provider);
+  }
+
+  const nonce = _nonce ?? await wallet.getNonce();
 
   const tx: ethers.TransactionRequest = {
     to: UNIVERSAL_ROUTER,
@@ -95,18 +138,14 @@ export async function executeBuy(
     maxPriorityFeePerGas: ethers.parseUnits('0.01', 'gwei'),
   };
 
-  // Sign locally — private key never leaves the browser
   const signedTx = await wallet.signTransaction(tx);
 
-  // Broadcast to all RPCs in parallel — first success wins
+  // Increment nonce immediately for next tx
+  if (_nonce !== null) _nonce++;
+
+  // Broadcast to all RPCs in parallel via raw fetch — first success wins
   const hash = await Promise.any(
-    BASE_RPCS.map(async (url) => {
-      const p = new ethers.JsonRpcProvider(url, BASE_CHAIN_ID, {
-        staticNetwork: true,
-      });
-      const resp = await p.broadcastTransaction(signedTx);
-      return resp.hash;
-    }),
+    BASE_RPCS.map((url) => rawBroadcast(signedTx, url)),
   );
 
   return hash;

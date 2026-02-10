@@ -224,8 +224,9 @@ export function detectFeeRecommendation(
         // Check for negation before the match (e.g. "don't direct fees")
         const before = text.slice(Math.max(0, match.index - 50), match.index);
         if (/(?:don'?t|do\s+not)\s/.test(before)) return null;
-        // Block partial fee splits (half, some, partial) — only all fees = purple
-        if (/(?:half|some|partial)\s+fees?/i.test(text)) return null;
+        // Block partial fee splits (half, some, partial, %) — only all fees = purple
+        if (/(?:half|some|partial)\s+(?:of\s+)?(?:the\s+)?fees?/i.test(text)) return null;
+        if (/\d+\s*%\s*(?:of\s+)?(?:the\s+)?fees?/i.test(text)) return null;
         // Block if tweet has filler wall — 5+ lines that are just dashes/dots/empty
         const fillerLines = text.split("\n").filter(l => /^[\s.\-\u2022\u2013\u2014|,_]*$/.test(l)).length;
         if (fillerLines >= 5) return null;

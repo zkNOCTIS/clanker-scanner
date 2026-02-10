@@ -181,23 +181,19 @@ function HomeContent() {
     };
   }, [scanning]);
 
-  // IPFS Metadata fetching
+  // IPFS Metadata fetching — fallback for tokens Railway couldn't fetch
   const fetchedCidsRef = useRef<Set<string>>(new Set());
   const invalidRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (tokens.length === 0) return;
 
-    const tokensToFetch = tokens.filter(
-      (t) => t.ipfs_cid && !t.name.startsWith("Loading") && !fetchedCidsRef.current.has(t.ipfs_cid) && !invalidRef.current.has(t.ipfs_cid)
-    );
-
-    // Also fetch for "Loading..." tokens even if we haven't seen them, to populate data
-    const loadingTokens = tokens.filter(
+    // Only fetch IPFS for "Loading..." tokens (Railway's IPFS fetch failed as fallback)
+    const batch = tokens.filter(
       (t) => t.ipfs_cid && t.name === "Loading..." && !fetchedCidsRef.current.has(t.ipfs_cid) && !invalidRef.current.has(t.ipfs_cid)
-    );
+    ).slice(0, 5);
 
-    const batch = [...tokensToFetch, ...loadingTokens].slice(0, 5); // Rate limit concurrent fetches
+    if (batch.length === 0) return;
 
     batch.forEach((token) => {
       if (!token.ipfs_cid) return;

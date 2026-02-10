@@ -102,8 +102,26 @@ let provider;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
 
+// Fetch IPFS metadata from multiple gateways (race for fastest)
+async function fetchIpfsMetadata(ipfsCid) {
+  const gateways = [
+    'https://ipfs.io/ipfs/',
+    'https://dweb.link/ipfs/',
+    'https://gateway.pinata.cloud/ipfs/'
+  ];
+
+  return Promise.any(
+    gateways.map(async (base) => {
+      const res = await fetch(`${base}${ipfsCid}`, { signal: AbortSignal.timeout(8000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      return { data, gatewayBase: base };
+    })
+  );
+}
+
 // Process raw transaction to find IPFS CID and deployed token
-function processRawTransaction(tx, data, receipt) {
+async function processRawTransaction(tx, data, receipt) {
   try {
     const hex = data.startsWith('0x') ? data.slice(2) : data;
     const ipfsIdx = hex.indexOf(IPFS_PREFIX_HEX);
@@ -135,7 +153,7 @@ function processRawTransaction(tx, data, receipt) {
 
       // Verify we found a valid token address
       if (createdToken === "Unknown") {
-        console.log('⚠️ Could not find deployed token address in logs. Skipping broadcast.');
+        console.log('⚠️ Could not find deployed token address in logs. Skipping.');
         console.log('\x1b[35m%s\x1b[0m', '----------------------------------------');
         return;
       }
@@ -144,27 +162,64 @@ function processRawTransaction(tx, data, receipt) {
       console.log(`IPFS:   ${ipfs}`);
       console.log(`Tx:     https://basescan.org/tx/${tx.hash}`);
 
-      // Clean IPFS link
       const ipfsCid = ipfs.replace('ipfs://', '');
       const serverNow = new Date().toISOString();
 
-      // Broadcast partial token data with IPFS CID
-      // Frontend will fetch metadata (name, symbol, image, description)
-      const tokenData = {
-        contract_address: createdToken,
-        name: "Loading...", // Placeholder
-        symbol: "...",      // Placeholder
-        ipfs_cid: ipfsCid,
-        tx_hash: tx.hash,
-        created_at: serverNow,
-        creator_address: tx.from,
-        // Other fields will be populated by frontend after fetching IPFS
-        image_url: null,
-        description: null,
-        twitter_link: null,
-      };
+      // Fetch IPFS metadata on Railway — validates tweet URL before broadcasting
+      // This is faster than browser-side fetch because it starts immediately
+      try {
+        const { data: ipfsData, gatewayBase } = await fetchIpfsMetadata(ipfsCid);
+        const tweetUrl = ipfsData.tweet_url || '';
+        const isValidTweet = tweetUrl.includes('twitter.com') || tweetUrl.includes('x.com');
 
-      broadcastToken(tokenData);
+        if (!isValidTweet) {
+          console.log(`⚠️ Skipping (no valid tweet URL): ${createdToken}`);
+          console.log('\x1b[35m%s\x1b[0m', '----------------------------------------');
+          return;
+        }
+
+        // Build image URL using the winning gateway
+        const imageUrl = ipfsData.image
+          ? ipfsData.image.replace('ipfs://', gatewayBase)
+          : null;
+
+        const tokenData = {
+          contract_address: createdToken,
+          name: ipfsData.name || "Unknown",
+          symbol: ipfsData.symbol || "???",
+          ipfs_cid: ipfsCid,
+          tx_hash: tx.hash,
+          created_at: serverNow,
+          creator_address: tx.from,
+          image_url: imageUrl,
+          description: ipfsData.description || null,
+          twitter_link: tweetUrl,
+          social_context: {
+            interface: "Bankr",
+            platform: "X",
+            messageId: tweetUrl
+          }
+        };
+
+        broadcastToken(tokenData);
+        console.log(`✅ ${ipfsData.name} ($${ipfsData.symbol}) — tweet validated`);
+      } catch (ipfsErr) {
+        console.error(`⚠️ IPFS fetch failed for ${ipfsCid}: ${ipfsErr.message || ipfsErr}`);
+        // Broadcast partial as fallback — browser can retry IPFS fetch
+        const tokenData = {
+          contract_address: createdToken,
+          name: "Loading...",
+          symbol: "...",
+          ipfs_cid: ipfsCid,
+          tx_hash: tx.hash,
+          created_at: serverNow,
+          creator_address: tx.from,
+          image_url: null,
+          description: null,
+          twitter_link: null,
+        };
+        broadcastToken(tokenData);
+      }
 
       console.log('\x1b[35m%s\x1b[0m', '----------------------------------------');
     }

@@ -215,6 +215,8 @@ export function detectFeeRecommendation(
     /(?:all\s+)?fees?\s+(?:and\s+\w+\s+)?too?\s+@?(\w+)/gi,
     /(?:give|send|set|direct|redirect)\s+(?:the\s+)?(?:all\s+)?fees?\s+(?:and\s+\w+\s+)?(?:too?\s+)?(?:for\s+)?@?(\w+)/gi,
     /@(\w+)\s+(?:gets?\s+(?:the\s+)?fees?|receives?\s+(?:the\s+)?fees?)/gi,
+    // "fee send all too @X" — fee word before verb
+    /fees?\s+(?:give|send|set|direct|redirect)\s+(?:all\s+)?too?\s+@?(\w+)/gi,
   ];
 
   for (const pattern of feePatterns) {

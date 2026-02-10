@@ -13,6 +13,10 @@ const WSS_URLS = [
 const CLANKER_FACTORY = process.env.CLANKER_FACTORY; // Clanker factory contract address
 const NEYNAR_API_KEY = process.env.NEYNAR_API_KEY; // Neynar API for Farcaster verification
 
+// Whetstone factory (new unified factory for Bankr + Clanker deploys)
+const WHETSTONE_FACTORY = '0xE85A59c628F7d27878ACeB4bf3b35733630083a9';
+const WHETSTONE_TOPIC = '0x9299d1d1a88d8e1abdc591ae7a167a6bc63a8f17d695804e9091ee33aa89fb67';
+
 // In-memory token buffer (replaces Redis - WebSocket push means no external store needed)
 const recentTokens = []; // Most recent first
 const MAX_TOKENS = 50;
@@ -349,6 +353,160 @@ async function handleTokenCreated(tokenAddress, name, symbol, txHash, event) {
   broadcastToken(tokenData);
 }
 
+// Parse whetstone factory event data — extracts social context from JSON blocks in event data
+function parseWhetstonEventData(log) {
+  const tokenAddress = '0x' + log.topics[1].slice(26);
+  const creatorAddress = '0x' + log.topics[2].slice(26);
+
+  const hexData = log.data.slice(2);
+
+  // Convert hex to ASCII for JSON extraction
+  let ascii = '';
+  for (let i = 0; i < hexData.length; i += 2) {
+    const byte = parseInt(hexData.substr(i, 2), 16);
+    ascii += (byte >= 32 && byte <= 126) ? String.fromCharCode(byte) : ' ';
+  }
+
+  // Extract name/symbol from ABI-encoded strings in event data
+  // They appear as: 32-byte length slot + 32-byte data slot
+  // Scan for string-length values (1-64) followed by printable ASCII
+  let name = '', symbol = '';
+  const slotCount = Math.floor(hexData.length / 64);
+  for (let i = 10; i < Math.min(slotCount - 1, 25); i++) {
+    const lenSlot = hexData.slice(i * 64, (i + 1) * 64);
+    const len = parseInt(lenSlot, 16);
+    if (len > 0 && len <= 64) {
+      const dataHex = hexData.slice((i + 1) * 64, (i + 1) * 64 + len * 2);
+      try {
+        const str = Buffer.from(dataHex, 'hex').toString('utf8').replace(/\0/g, '');
+        if (str.length > 0 && str.length <= len && /^[\x20-\x7e\u0080-\uffff]+$/.test(str)) {
+          if (!name) { name = str; }
+          else if (!symbol) { symbol = str; break; }
+        }
+      } catch (e) { /* skip */ }
+    }
+  }
+
+  // Find JSON blocks via brace matching
+  const jsonBlocks = [];
+  let depth = 0, start = -1;
+  for (let i = 0; i < ascii.length; i++) {
+    if (ascii[i] === '{') { if (depth === 0) start = i; depth++; }
+    if (ascii[i] === '}') { depth--; if (depth === 0 && start >= 0) { jsonBlocks.push(ascii.slice(start, i + 1)); start = -1; } }
+  }
+
+  // Parse JSON blocks for metadata and context
+  let metadata = null, context = null;
+  for (const block of jsonBlocks) {
+    try {
+      const parsed = JSON.parse(block);
+      if (parsed.interface || parsed.platform || parsed.messageId) {
+        context = parsed;
+      } else if (parsed.description !== undefined || parsed.socialMediaUrls) {
+        metadata = parsed;
+      }
+    } catch (e) { /* malformed JSON, skip */ }
+  }
+
+  // Extract tweet URL from context.messageId
+  let tweetUrl = null;
+  if (context?.messageId) {
+    const tweetMatch = context.messageId.match(/https:\/\/(twitter\.com|x\.com)\/[^"\s]+\/status\/\d+/);
+    if (tweetMatch) tweetUrl = tweetMatch[0];
+  }
+
+  // Extract image from metadata socialMediaUrls or IPFS
+  let imageUrl = null;
+  const ipfsMatch = ascii.match(/ipfs:\/\/[a-zA-Z0-9]+/);
+  if (ipfsMatch) imageUrl = ipfsMatch[0];
+
+  return {
+    tokenAddress,
+    creatorAddress,
+    name,
+    symbol,
+    tweetUrl,
+    imageUrl,
+    description: metadata?.description || '',
+    interface: context?.interface || null,
+    platform: context?.platform || null,
+    messageId: context?.messageId || null,
+    id: context?.id || null,
+    xUsername: null
+  };
+}
+
+async function handleWhetstonEvent(log) {
+  const t0 = Date.now();
+  const parsed = parseWhetstonEventData(log);
+
+  console.log(`\n🔷 [WHETSTONE] ${parsed.symbol || '?'} | ${parsed.tokenAddress.slice(0,10)}... | Block ${log.blockNumber}`);
+
+  // Skip tokens with no social context at all
+  if (!parsed.tweetUrl && !parsed.messageId) {
+    console.log('   ⚠️  No social context, skipping');
+    return;
+  }
+
+  // Skip Clank.fun deploys
+  if (parsed.interface && parsed.interface.toLowerCase() === 'clank.fun') {
+    console.log('   ⚠️  Clank.fun deploy, skipping');
+    return;
+  }
+
+  const serverNow = new Date().toISOString();
+  const hasTwitter = !!parsed.tweetUrl;
+  const hasFarcasterFid = !!parsed.id && /^\d+$/.test(parsed.id) && parsed.platform?.toLowerCase() === 'farcaster';
+
+  // For Farcaster tokens, run the same verification as before
+  if (!hasTwitter && hasFarcasterFid) {
+    if (BLACKLISTED_FARCASTER_FIDS.has(parsed.id)) return;
+
+    if (!WHITELISTED_FARCASTER_FIDS.has(parsed.id)) {
+      const neynarStart = Date.now();
+      const xVerification = await checkFarcasterUserHasX(parsed.id);
+      console.log(`   ⏱ neynar: ${Date.now() - neynarStart}ms ${neynarCache.has(parsed.id) ? '[CACHED]' : '[API]'}`);
+      if (!xVerification.hasLinkedX) return;
+      parsed.xUsername = xVerification.xUsername;
+    }
+  } else if (!hasTwitter) {
+    // No tweet URL and not a valid Farcaster deploy
+    return;
+  }
+
+  const castHash = hasFarcasterFid && parsed.messageId && parsed.messageId.startsWith('0x')
+    ? parsed.messageId
+    : null;
+
+  const tokenData = {
+    contract_address: parsed.tokenAddress,
+    name: parsed.name,
+    symbol: parsed.symbol,
+    image_url: parsed.imageUrl,
+    description: parsed.description,
+    tx_hash: log.transactionHash,
+    created_at: serverNow,
+    creator_address: parsed.creatorAddress,
+    msg_sender: parsed.creatorAddress,
+    twitter_link: hasTwitter ? parsed.tweetUrl : null,
+    farcaster_link: hasFarcasterFid ? parsed.messageId : null,
+    cast_hash: castHash,
+    website_link: null,
+    telegram_link: null,
+    discord_link: null,
+    social_context: {
+      interface: parsed.interface || (hasTwitter ? 'Bankr' : 'clanker'),
+      platform: hasTwitter ? 'X' : hasFarcasterFid ? 'farcaster' : (parsed.platform || 'unknown'),
+      messageId: parsed.messageId || parsed.tweetUrl || '',
+      id: parsed.id || '',
+      xUsername: parsed.xUsername || null
+    }
+  };
+
+  broadcastToken(tokenData);
+  console.log(`   ⏱ ${Date.now() - t0}ms total`);
+}
+
 async function startListener() {
   try {
     const currentUrl = WSS_URLS[currentUrlIndex];
@@ -400,7 +558,23 @@ async function startListener() {
       }
     });
 
-    console.log('👂 Listening for ALL events from factory...\n');
+    // Whetstone factory listener (Bankr + new Clanker deploys)
+    const whetstonFilter = {
+      address: WHETSTONE_FACTORY,
+      topics: [WHETSTONE_TOPIC]
+    };
+
+    console.log(`📡 Listening to Whetstone Factory: ${WHETSTONE_FACTORY}`);
+
+    provider.on(whetstonFilter, async (log) => {
+      try {
+        await handleWhetstonEvent(log);
+      } catch (error) {
+        console.error('❌ Whetstone event error:', error.message);
+      }
+    });
+
+    console.log('👂 Listening for events from both factories...\n');
 
     // Reset reconnect attempts on successful connection
     reconnectAttempts = 0;

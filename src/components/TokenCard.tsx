@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { ClankerToken, getTwitterUsername, getTweetId, getTweetUrl, getCastUrl } from "@/types";
 import { TweetEmbed } from "./TweetEmbed";
+import { executeBuy } from "@/lib/swap";
 
 function formatTimeAgo(dateStr: string): string {
   const now = Date.now();
@@ -19,9 +20,12 @@ function formatTimeAgo(dateStr: string): string {
 }
 
 
-export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = false, botDomain = "based_vip_eu_bot" }: { token: ClankerToken; isLatest?: boolean; onTweetDeleted?: () => void; shouldFetchStats?: boolean; botDomain?: string }) {
+export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = false, walletKey = null, buyAmount = "0.005" }: { token: ClankerToken; isLatest?: boolean; onTweetDeleted?: () => void; shouldFetchStats?: boolean; walletKey?: string | null; buyAmount?: string }) {
   const [copied, setCopied] = useState(false);
   const [, setTick] = useState(0);
+  const [buyState, setBuyState] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [txHash, setTxHash] = useState<string | null>(null);
+  const [buyError, setBuyError] = useState<string | null>(null);
   const [twitterStats, setTwitterStats] = useState<{
     replied_to_username: string;
     replied_to_followers: number;
@@ -218,17 +222,47 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
         )}
 
         {/* Buy button */}
-        <button
-          onClick={() => {
-            window.location.href = `tg://resolve?domain=${botDomain}&start=b_${token.contract_address}`;
-          }}
-          className="mt-3 flex items-center justify-center gap-2 w-full py-2.5 rounded font-semibold text-sm transition-colors bg-[#26A5E4]/10 border border-[#26A5E4]/30 text-[#26A5E4] hover:bg-[#26A5E4]/20"
-        >
-          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
-          </svg>
-          Buy on BasedBot
-        </button>
+        {walletKey ? (
+          <button
+            onClick={async () => {
+              if (buyState === "sending") return;
+              setBuyState("sending");
+              try {
+                const hash = await executeBuy(walletKey, token.contract_address, buyAmount);
+                setTxHash(hash);
+                setBuyState("sent");
+                setTimeout(() => setBuyState("idle"), 10000);
+              } catch (e: any) {
+                setBuyError(e.message?.slice(0, 60) || "Transaction failed");
+                setBuyState("error");
+                setTimeout(() => { setBuyState("idle"); setBuyError(null); }, 5000);
+              }
+            }}
+            disabled={buyState === "sending"}
+            className={`mt-3 flex items-center justify-center gap-2 w-full py-2.5 rounded font-semibold text-sm transition-colors ${
+              buyState === "sent"
+                ? "bg-[#00ff88]/20 border border-[#00ff88]/50 text-[#00ff88]"
+                : buyState === "error"
+                ? "bg-red-500/20 border border-red-500/50 text-red-400"
+                : buyState === "sending"
+                ? "bg-yellow-500/20 border border-yellow-500/50 text-yellow-400 cursor-wait"
+                : "bg-[#00ff88]/10 border border-[#00ff88]/30 text-[#00ff88] hover:bg-[#00ff88]/20"
+            }`}
+          >
+            {buyState === "sending" && "SENDING..."}
+            {buyState === "sent" && txHash && (
+              <a href={`https://basescan.org/tx/${txHash}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+                SENT! View tx &rarr;
+              </a>
+            )}
+            {buyState === "error" && `FAILED: ${buyError}`}
+            {buyState === "idle" && `BUY ${buyAmount} ETH`}
+          </button>
+        ) : (
+          <div className="mt-3 text-center text-[10px] text-gray-500 font-mono py-1.5">
+            Import wallet above to enable instant buy
+          </div>
+        )}
 
         {/* Social Links - dedupe by URL */}
         {(() => {

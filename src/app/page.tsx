@@ -4,6 +4,8 @@ import { Suspense, useEffect, useState, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { ClankerToken, hasRealSocialContext, getTweetUrl, getTweetId, detectFeeRecommendation } from "@/types";
 import { TokenCard } from "@/components/TokenCard";
+import { WalletPanel } from "@/components/WalletPanel";
+import { getStoredKey, getBuyAmount } from "@/lib/wallet";
 
 export default function Home() {
   return (
@@ -24,8 +26,15 @@ function HomeContent() {
   const newTokensRef = useRef<Set<string>>(new Set()); // Track tokens that arrived after initial load
   const [, setTick] = useState(0);
   const [searchCA, setSearchCA] = useState("");
+  const [walletKey, setWalletKey] = useState<string | null>(null);
+  const [buyAmount, setBuyAmount] = useState("0.005");
   const searchParams = useSearchParams();
-  const botDomain = searchParams.get("bot") || "based_vip_eu_bot";
+
+  // Load wallet from localStorage on mount
+  useEffect(() => {
+    setWalletKey(getStoredKey());
+    setBuyAmount(getBuyAmount());
+  }, []);
 
   // Remove token when tweet is detected as deleted
   const handleTweetDeleted = (contractAddress: string) => {
@@ -327,6 +336,12 @@ function HomeContent() {
             >
               {scanning ? "● LIVE" : "○ PAUSED"}
             </button>
+            <WalletPanel
+              walletKey={walletKey}
+              buyAmount={buyAmount}
+              onWalletChange={setWalletKey}
+              onBuyAmountChange={setBuyAmount}
+            />
             <div className="flex items-center gap-2">
               <input
                 type="text"
@@ -374,7 +389,8 @@ function HomeContent() {
                       isLatest={index === 0}
                       onTweetDeleted={() => handleTweetDeleted(token.contract_address)}
                       shouldFetchStats={newTokensRef.current.has(token.contract_address)}
-                      botDomain={botDomain}
+                      walletKey={walletKey}
+                      buyAmount={buyAmount}
                     />
                   </div>
                 ))}

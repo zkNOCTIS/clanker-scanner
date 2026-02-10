@@ -32,11 +32,20 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
     replied_to_followers_text: string;
   } | null>(token.twitter_stats || null);
 
-  // Update timestamp every 10 seconds
+  // Update timestamp every second (also drives fee countdown)
   useEffect(() => {
     const interval = setInterval(() => setTick(t => t + 1), 1000);
     return () => clearInterval(interval);
   }, []);
+
+  // Fee countdown for Clanker AI — Sniper Auction V2 (quadratic decay)
+  // fee = endingFee + feeRange * (timeRemaining / timeToDecay)²
+  // On-chain: 66.7% → 4.2% over 15s (auction), then 1% base LP fee
+  const FEE_DURATION = 15;
+  const isClanker = token.factory_type === "clanker";
+  const secondsSinceDeploy = Math.floor((Date.now() - new Date(token.created_at).getTime()) / 1000);
+  const feeRemaining = isClanker ? Math.max(0, FEE_DURATION - secondsSinceDeploy) : 0;
+  const hasFee = feeRemaining > 0;
 
 
   const tweetUrl = getTweetUrl(token);
@@ -127,6 +136,15 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
               <span className="text-gray-500 font-mono text-xs">
                 {formatTimeAgo(token.created_at)}
               </span>
+              {isClanker ? (
+                <span className="px-2 py-0.5 text-[10px] font-mono font-bold bg-[#f97316] text-black rounded-sm">
+                  CLANKER
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 text-[10px] font-mono font-bold bg-[#3b82f6] text-white rounded-sm">
+                  BANKR
+                </span>
+              )}
               {platform === "X" && (
                 <svg className="w-4 h-4 text-[#00d9ff]" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
@@ -235,7 +253,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
               if (buyState === "sending" || buyState === "pending") return;
               setBuyState("sending");
               try {
-                const hash = await executeBuy(walletKey, token.contract_address, buyAmount);
+                const hash = await executeBuy(walletKey, token.contract_address, buyAmount, token.factory_type || "bankr");
                 setTxHash(hash);
                 setBuyState("pending");
                 // Poll for receipt
@@ -297,7 +315,9 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
               </a>
             )}
             {buyState === "error" && `FAILED: ${buyError}`}
-            {buyState === "idle" && `BUY ${buyAmount} ETH`}
+            {buyState === "idle" && (hasFee
+              ? `BUY ${buyAmount} ETH (~${Math.round(4.2 + 62.5 * Math.pow(feeRemaining / FEE_DURATION, 2))}% fee ${feeRemaining}s)`
+              : `BUY ${buyAmount} ETH`)}
           </button>
         ) : (
           <div className="mt-3 text-center text-[10px] text-gray-500 font-mono py-1.5">

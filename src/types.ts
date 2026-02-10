@@ -51,6 +51,7 @@ export interface ClankerToken {
       }>;
     };
   };
+  factory_type?: "bankr" | "clanker";
   starting_market_cap?: number;
   created_at: string;
   msg_sender?: string;

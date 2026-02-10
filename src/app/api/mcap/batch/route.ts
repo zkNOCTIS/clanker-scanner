@@ -14,13 +14,13 @@ const RPC_URLS = [
 
 const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11";
 const STATEVIEW = "0xA3c0c9b65baD0b08107Aa264b0f3dB444b867A71";
-const HOOKS = [
-  "0x3e342a06f9592459D75721d6956B570F02eF2Dc0", // Clanker (X/Twitter)
-  "0xd60D6B218116cFd801E28F78d011a203D2b068Cc", // Farcaster
+const POOL_CONFIGS = [
+  { hook: "0x3e342a06f9592459D75721d6956B570F02eF2Dc0", fee: 12000 },      // Bankr (X/Twitter)
+  { hook: "0xd60D6B218116cFd801E28F78d011a203D2b068Cc", fee: 12000 },      // Farcaster
+  { hook: "0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC", fee: 8388608 },   // Clanker AI
 ];
 const WETH = "0x4200000000000000000000000000000000000006";
 const CHAINLINK_ETH_USD = "0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70";
-const DYNAMIC_FEE = 12000;
 const SUPPLY = 100_000_000_000n;
 
 const MULTICALL3_ABI = [
@@ -78,10 +78,10 @@ function computePoolIds(tokenAddr: string): string[] {
     BigInt(a) < BigInt(b) ? -1 : 1
   );
 
-  return HOOKS.map((hook) => {
+  return POOL_CONFIGS.map(({ hook, fee }) => {
     const encoded = abiCoder.encode(
       ["address", "address", "uint24", "int24", "address"],
-      [token0, token1, DYNAMIC_FEE, 200, ethers.getAddress(hook)]
+      [token0, token1, fee, 200, ethers.getAddress(hook)]
     );
     return ethers.keccak256(encoded);
   });
@@ -133,8 +133,8 @@ async function multicallBatch(
     callData: chainlinkIface.encodeFunctionData("latestRoundData"),
   });
 
-  // Calls 1..N: getSlot0 for each token × each hook
-  const hookCount = HOOKS.length;
+  // Calls 1..N: getSlot0 for each token × each pool config
+  const configCount = POOL_CONFIGS.length;
   for (const addr of addresses) {
     const poolIds = computePoolIds(addr);
     for (const poolId of poolIds) {
@@ -161,8 +161,8 @@ async function multicallBatch(
     const addr = addresses[i].toLowerCase();
     let found = false;
 
-    for (let h = 0; h < hookCount; h++) {
-      const result = results[1 + i * hookCount + h]; // offset by 1 for chainlink
+    for (let h = 0; h < configCount; h++) {
+      const result = results[1 + i * configCount + h]; // offset by 1 for chainlink
       if (!result.success) continue;
 
       try {

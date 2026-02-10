@@ -13,13 +13,13 @@ const RPC_URLS = [
 ];
 
 const STATEVIEW = "0xA3c0c9b65baD0b08107Aa264b0f3dB444b867A71";
-const HOOKS = [
-  "0x3e342a06f9592459D75721d6956B570F02eF2Dc0", // Clanker (X/Twitter)
-  "0xd60D6B218116cFd801E28F78d011a203D2b068Cc", // Farcaster
+const POOL_CONFIGS = [
+  { hook: "0x3e342a06f9592459D75721d6956B570F02eF2Dc0", fee: 12000 },      // Bankr (X/Twitter)
+  { hook: "0xd60D6B218116cFd801E28F78d011a203D2b068Cc", fee: 12000 },      // Farcaster
+  { hook: "0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC", fee: 8388608 },   // Clanker AI
 ];
 const WETH = "0x4200000000000000000000000000000000000006";
 const CHAINLINK_ETH_USD = "0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70";
-const DYNAMIC_FEE = 12000;
 const SUPPLY = 100_000_000_000n;
 
 // Minimal ABI for StateView getSlot0
@@ -79,7 +79,7 @@ async function calculateMcapWithRpc(rpcUrl: string, tokenAddr: string): Promise<
     BigInt(a) < BigInt(b) ? -1 : 1
   );
 
-  // Try each hook to find the right pool
+  // Try each pool config to find the right pool
   const abiCoder = ethers.AbiCoder.defaultAbiCoder();
   const stateViewContract = new ethers.Contract(
     ethers.getAddress(STATEVIEW),
@@ -88,10 +88,10 @@ async function calculateMcapWithRpc(rpcUrl: string, tokenAddr: string): Promise<
   );
 
   let sqrtPriceX96 = 0n;
-  for (const hook of HOOKS) {
+  for (const { hook, fee } of POOL_CONFIGS) {
     const encoded = abiCoder.encode(
       ['address', 'address', 'uint24', 'int24', 'address'],
-      [token0, token1, DYNAMIC_FEE, 200, ethers.getAddress(hook)]
+      [token0, token1, fee, 200, ethers.getAddress(hook)]
     );
     const poolId = ethers.keccak256(encoded);
     const poolData = await stateViewContract.getSlot0(poolId);

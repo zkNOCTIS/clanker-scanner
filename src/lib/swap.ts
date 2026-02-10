@@ -3,7 +3,9 @@ import { ethers } from 'ethers';
 export const UNIVERSAL_ROUTER = '0x6fF5693b99212Da76ad316178A184AB56D299b43';
 export const WETH = '0x4200000000000000000000000000000000000006';
 export const CLANKER_HOOK = '0x3e342a06f9592459D75721d6956B570F02eF2Dc0';
-const FEE = 12000;
+const CLANKER_AI_HOOK = '0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC';
+const BANKR_FEE = 12000;
+const CLANKER_AI_FEE = 8388608; // 0x800000 — dynamic fee (hook-controlled)
 const TICK_SPACING = 200;
 const BASE_CHAIN_ID = 8453;
 
@@ -51,13 +53,17 @@ export function clearWalletCache() {
   _key = null;
 }
 
-function encodeV4Swap(tokenAddress: string, amountInWei: bigint): string {
+function encodeV4Swap(tokenAddress: string, amountInWei: bigint, factoryType: 'bankr' | 'clanker' = 'bankr'): string {
   const weth = ethers.getAddress(WETH);
   const token = ethers.getAddress(tokenAddress);
 
   const [currency0, currency1] =
     BigInt(weth) < BigInt(token) ? [weth, token] : [token, weth];
   const zeroForOne = currency0 === weth;
+
+  // Pick pool params based on factory type
+  const hook = factoryType === 'clanker' ? CLANKER_AI_HOOK : CLANKER_HOOK;
+  const fee = factoryType === 'clanker' ? CLANKER_AI_FEE : BANKR_FEE;
 
   const ADDRESS_THIS = '0x0000000000000000000000000000000000000002';
   const CONTRACT_BALANCE = 1n << 255n;
@@ -77,7 +83,7 @@ function encodeV4Swap(tokenAddress: string, amountInWei: bigint): string {
   // V4 action 0x06: SWAP_EXACT_IN_SINGLE
   const swapParams = abiCoder.encode(
     ['(address,address,uint24,int24,address,bool,uint128,uint128,bytes)'],
-    [[currency0, currency1, FEE, TICK_SPACING, CLANKER_HOOK, zeroForOne, amountInWei, 0, '0x00']]
+    [[currency0, currency1, fee, TICK_SPACING, hook, zeroForOne, amountInWei, 0, '0x00']]
   );
 
   // V4 action 0x0f: TAKE_ALL — take output tokens to msg.sender
@@ -143,9 +149,10 @@ export async function executeBuy(
   privateKey: string,
   tokenAddress: string,
   ethAmount: string,
+  factoryType: 'bankr' | 'clanker' = 'bankr',
 ): Promise<string> {
   const amountInWei = ethers.parseEther(ethAmount);
-  const calldata = encodeV4Swap(tokenAddress, amountInWei);
+  const calldata = encodeV4Swap(tokenAddress, amountInWei, factoryType);
 
   let wallet = _wallet;
   if (!wallet || _key !== privateKey) {

@@ -89,6 +89,11 @@ server.listen(WS_PORT, () => {
 const TARGET_SELECTOR = 'e9ae5c53';
 const IPFS_PREFIX_HEX = '697066733a2f2f'; // ipfs://
 
+// ---- Clanker AI Factory ----
+const CLANKER_AI_FACTORY = '0xe85a59c628f7d27878aceb4bf3b35733630083a9'; // lowercased
+const CLANKER_AI_EVENT_TOPIC = '0x9299d1d1a88d8e1abdc591ae7a167a6bc63a8f17d695804e9091ee33aa89fb67';
+const abiCoder = new ethers.AbiCoder();
+
 let currentUrlIndex = 0;
 let provider;
 let reconnectAttempts = 0;
@@ -144,10 +149,84 @@ async function fetchIpfsMetadata(ipfsCid) {
   );
 }
 
+// Process a Clanker AI factory tx — parse event logs directly (no IPFS needed)
+async function processClankerAiTx(tx, receipt, t0) {
+  try {
+    // Find the factory event log
+    const factoryLog = receipt.logs.find(
+      log => log.topics[0] === CLANKER_AI_EVENT_TOPIC
+        && log.address.toLowerCase() === CLANKER_AI_FACTORY
+    );
+    if (!factoryLog) {
+      console.log('⚠️ Clanker AI tx but no factory event found. Skipping.');
+      return;
+    }
+
+    // Token address from topic1 (indexed)
+    const tokenAddress = ethers.getAddress('0x' + factoryLog.topics[1].slice(26));
+
+    // Decode event data: (address deployer, uint256 id, string name, string symbol, string empty, string socialContextJSON, int24 tick, address hook, bytes32 poolId, uint256 extra)
+    const decoded = abiCoder.decode(
+      ['address', 'uint256', 'string', 'string', 'string', 'string', 'int24', 'address', 'bytes32', 'uint256'],
+      factoryLog.data
+    );
+
+    const name = decoded[2] || 'Unknown';
+    const symbol = decoded[3] || '???';
+    const socialContextRaw = decoded[5] || '{}';
+
+    let socialContext = {};
+    try { socialContext = JSON.parse(socialContextRaw); } catch {}
+
+    const platform = (socialContext.platform || '').toLowerCase();
+    const messageId = socialContext.messageId || '';
+
+    // Only show tokens deployed from Twitter/X
+    if (platform !== 'twitter' && platform !== 'x') {
+      console.log(`⚠️ Clanker AI: Skipping non-Twitter platform "${platform}" for ${symbol}`);
+      return;
+    }
+
+    // Construct tweet URL from messageId (numeric tweet ID)
+    const tweetUrl = messageId ? `https://x.com/i/status/${messageId}` : null;
+    if (!tweetUrl) {
+      console.log(`⚠️ Clanker AI: No messageId for ${symbol}. Skipping.`);
+      return;
+    }
+
+    const serverNow = new Date().toISOString();
+
+    broadcastToken({
+      contract_address: tokenAddress,
+      name,
+      symbol,
+      tx_hash: tx.hash,
+      created_at: serverNow,
+      creator_address: tx.from,
+      image_url: null,
+      description: null,
+      twitter_link: tweetUrl,
+      factory_type: 'clanker',
+      social_context: {
+        interface: 'clanker',
+        platform: 'X',
+        messageId: tweetUrl,
+      },
+    });
+
+    console.log(`✅ [Clanker AI] ${name} ($${symbol}) — ${tokenAddress}`);
+    console.log(`   Tweet: ${tweetUrl}`);
+    console.log(`   ⏱️  Total: ${(performance.now() - t0).toFixed(0)}ms`);
+    console.log('\x1b[36m%s\x1b[0m', '----------------------------------------');
+  } catch (e) {
+    console.error('[Clanker AI] Error processing tx:', e.message);
+  }
+}
+
 async function startListener() {
   try {
     const currentUrl = WSS_URLS[currentUrlIndex];
-    console.log('Starting Aggressive BankrFindr Monitor...');
+    console.log('Starting Aggressive BankrFindr + Clanker AI Monitor...');
     console.log(`WSS URL: ${currentUrl}`);
 
     provider = new ethers.WebSocketProvider(currentUrl);
@@ -163,21 +242,41 @@ async function startListener() {
         if (!block || !block.transactions) return;
         const tBlock = performance.now();
 
-        // Find matching txs first, then process all in parallel
-        const matches = [];
+        // Find Bankr matches (calldata) and Clanker AI matches (tx.to)
+        const bankrMatches = [];
+        const clankerAiTxs = [];
         for (const tx of block.transactions) {
           const data = tx.input || tx.data || '';
+          // Bankr: match calldata selector + IPFS prefix
           if (data.includes(TARGET_SELECTOR) && data.includes(IPFS_PREFIX_HEX)) {
             const ipfsCid = extractIpfsCid(data);
-            if (ipfsCid) matches.push({ tx, data, ipfsCid });
+            if (ipfsCid) bankrMatches.push({ tx, data, ipfsCid });
+          }
+          // Clanker AI: match tx.to === factory address
+          if (tx.to && tx.to.toLowerCase() === CLANKER_AI_FACTORY) {
+            clankerAiTxs.push(tx);
           }
         }
 
-        if (matches.length === 0) return;
-        console.log(`\n⚡ Block ${blockNumber}: ${matches.length} deploy(s) found (block fetch: ${(tBlock - t0).toFixed(0)}ms)`);
+        if (bankrMatches.length === 0 && clankerAiTxs.length === 0) return;
+
+        const totalMatches = bankrMatches.length + clankerAiTxs.length;
+        console.log(`\n⚡ Block ${blockNumber}: ${totalMatches} deploy(s) found [Bankr: ${bankrMatches.length}, Clanker: ${clankerAiTxs.length}] (block fetch: ${(tBlock - t0).toFixed(0)}ms)`);
 
         // Process all matching txs in parallel
-        await Promise.all(matches.map(async ({ tx, data, ipfsCid }) => {
+        const allPromises = [];
+
+        // Clanker AI txs — fetch receipt then parse event
+        for (const tx of clankerAiTxs) {
+          allPromises.push(
+            provider.send('eth_getTransactionReceipt', [tx.hash])
+              .then(receipt => processClankerAiTx(tx, receipt, t0))
+              .catch(e => console.error('[Clanker AI] Receipt fetch failed:', e.message))
+          );
+        }
+
+        // Bankr txs — existing logic
+        allPromises.push(...bankrMatches.map(async ({ tx, data, ipfsCid }) => {
           try {
             const tFetch = performance.now();
 
@@ -228,6 +327,7 @@ async function startListener() {
                 image_url: imageUrl,
                 description: ipfsData.description || null,
                 twitter_link: tweetUrl,
+                factory_type: "bankr",
                 social_context: {
                   interface: "Bankr",
                   platform: "X",
@@ -248,6 +348,7 @@ async function startListener() {
                 image_url: null,
                 description: null,
                 twitter_link: null,
+                factory_type: "bankr",
               });
             }
             console.log('\x1b[35m%s\x1b[0m', '----------------------------------------');
@@ -255,6 +356,8 @@ async function startListener() {
             console.error('Error processing tx:', e.message);
           }
         }));
+
+        await Promise.all(allPromises);
       } catch (error) {
         console.error(`Error processing block ${blockNumber}:`, error.message);
       }
@@ -335,5 +438,5 @@ WSS_URLS.forEach((url, i) => {
   console.log(`   ${i === 0 ? 'Primary' : 'Backup'}: ${url}`);
 });
 
-console.log('🎯 Bankr Token Scanner Starting...\n');
+console.log('🎯 Bankr + Clanker AI Token Scanner Starting...\n');
 startListener();

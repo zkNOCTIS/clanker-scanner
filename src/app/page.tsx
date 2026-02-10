@@ -309,6 +309,9 @@ function HomeContent() {
     });
   }, [tokens]);
 
+  // Only show tokens that have been validated (IPFS fetched + valid tweet URL)
+  const visibleTokens = tokens.filter(t => t.name !== "Loading...");
+
   return (
     <main className="min-h-screen bg-[#0d1117]">
       {/* Header */}
@@ -360,14 +363,14 @@ function HomeContent() {
         <div className="flex gap-6">
           {/* Main feed */}
           <div className="flex-1 min-w-0">
-            {tokens.length === 0 ? (
+            {visibleTokens.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-32 text-gray-500 font-mono">
                 <div className="text-4xl mb-4">◉</div>
                 <div>Watching for new deploys...</div>
               </div>
             ) : (
               <div className="max-w-3xl mx-auto space-y-4">
-                {tokens.map((token, index) => (
+                {visibleTokens.map((token, index) => (
                   <div key={token.contract_address} id={`token-${token.contract_address}`}>
                     <TokenCard
                       token={token}
@@ -386,10 +389,10 @@ function HomeContent() {
           <div className="hidden lg:block w-72 flex-shrink-0">
             <div className="sticky top-20 bg-[#161b22] border border-[#30363d] rounded-sm">
               <div className="px-3 py-2 border-b border-[#30363d]">
-                <span className="font-mono text-sm text-[#00d9ff]">RECENT ({tokens.length})</span>
+                <span className="font-mono text-sm text-[#00d9ff]">RECENT ({visibleTokens.length})</span>
               </div>
               <div className="max-h-[calc(100vh-8rem)] overflow-y-auto">
-                {tokens.map((token, index) => {
+                {visibleTokens.map((token, index) => {
                   const timeAgo = Math.floor((Date.now() - new Date(token.created_at).getTime()) / 1000);
                   const timeStr = timeAgo < 60 ? `${timeAgo}s` : timeAgo < 3600 ? `${Math.floor(timeAgo / 60)}m` : `${Math.floor(timeAgo / 3600)}h`;
 

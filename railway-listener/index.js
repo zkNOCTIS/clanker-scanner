@@ -73,7 +73,7 @@ function broadcastToken(tokenData) {
   // Dedup — skip if we already broadcast this contract address
   const ca = tokenData.contract_address.toLowerCase();
   if (seenContracts.has(ca)) {
-    console.log(`[WS] Skipping duplicate ${tokenData.symbol} (${ca.slice(0,10)}...)`);
+    console.log(`[WS] Skipping duplicate ${tokenData.symbol || 'Token'} (${ca.slice(0, 10)}...)`);
     return;
   }
   seenContracts.add(ca);
@@ -85,194 +85,135 @@ function broadcastToken(tokenData) {
   for (const ws of wsClients) {
     if (ws.readyState === 1) ws.send(msg);
   }
-  console.log(`[WS] Broadcasted ${tokenData.symbol} to ${wsClients.size} clients (buffer: ${recentTokens.length})`);
+  console.log(`[WS] Broadcasted ${tokenData.symbol || 'Unknown'} to ${wsClients.size} clients (buffer: ${recentTokens.length})`);
 }
 
 server.listen(WS_PORT, () => {
   console.log(`🌐 WebSocket server listening on port ${WS_PORT}`);
 });
 
+// ---- Aggressive BankrFindr Logic ----
+
+const TARGET_SELECTOR = 'e9ae5c53';
+const IPFS_PREFIX_HEX = '697066733a2f2f'; // ipfs://
+
 let currentUrlIndex = 0;
 let provider;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
 
-// Parse whetstone factory event data — extracts social context from JSON blocks in event data
-function parseWhetstonEventData(log) {
-  const tokenAddress = '0x' + log.topics[1].slice(26);
-  const creatorAddress = '0x' + log.topics[2].slice(26);
-
-  const hexData = log.data.slice(2);
-
-  // Convert hex to ASCII for JSON extraction
-  let ascii = '';
-  for (let i = 0; i < hexData.length; i += 2) {
-    const byte = parseInt(hexData.substr(i, 2), 16);
-    ascii += (byte >= 32 && byte <= 126) ? String.fromCharCode(byte) : ' ';
-  }
-
-  // Extract name/symbol from ABI-encoded strings in event data
-  let name = '', symbol = '';
-  const slotCount = Math.floor(hexData.length / 64);
-  for (let i = 10; i < Math.min(slotCount - 1, 25); i++) {
-    const lenSlot = hexData.slice(i * 64, (i + 1) * 64);
-    const len = parseInt(lenSlot, 16);
-    if (len > 0 && len <= 64) {
-      const dataHex = hexData.slice((i + 1) * 64, (i + 1) * 64 + len * 2);
-      try {
-        const str = Buffer.from(dataHex, 'hex').toString('utf8').replace(/\0/g, '');
-        if (str.length > 0 && str.length <= len && /^[\x20-\x7e\u0080-\uffff]+$/.test(str)) {
-          if (!name) { name = str; }
-          else if (!symbol) { symbol = str; break; }
-        }
-      } catch (e) { /* skip */ }
-    }
-  }
-
-  // Find JSON blocks via brace matching
-  const jsonBlocks = [];
-  let depth = 0, start = -1;
-  for (let i = 0; i < ascii.length; i++) {
-    if (ascii[i] === '{') { if (depth === 0) start = i; depth++; }
-    if (ascii[i] === '}') { depth--; if (depth === 0 && start >= 0) { jsonBlocks.push(ascii.slice(start, i + 1)); start = -1; } }
-  }
-
-  // Parse JSON blocks for metadata and context
-  let metadata = null, context = null;
-  for (const block of jsonBlocks) {
-    try {
-      const parsed = JSON.parse(block);
-      if (parsed.interface || parsed.platform || parsed.messageId) {
-        context = parsed;
-      } else if (parsed.description !== undefined || parsed.socialMediaUrls) {
-        metadata = parsed;
-      }
-    } catch (e) { /* malformed JSON, skip */ }
-  }
-
-  // Extract tweet URL from context.messageId
-  let tweetUrl = null;
-  if (context?.messageId) {
-    const tweetMatch = context.messageId.match(/https:\/\/(twitter\.com|x\.com)\/[^"\s]+\/status\/\d+/);
-    if (tweetMatch) tweetUrl = tweetMatch[0];
-  }
-
-  // Extract image from IPFS
-  let imageUrl = null;
-  const ipfsMatch = ascii.match(/ipfs:\/\/[a-zA-Z0-9]+/);
-  if (ipfsMatch) imageUrl = ipfsMatch[0];
-
-  return {
-    tokenAddress,
-    creatorAddress,
-    name,
-    symbol,
-    tweetUrl,
-    imageUrl,
-    description: metadata?.description || '',
-    interface: context?.interface || null,
-    platform: context?.platform || null,
-    messageId: context?.messageId || null,
-    id: context?.id || null,
-    xUsername: null
-  };
-}
-
-async function handleWhetstonEvent(log) {
-  const t0 = Date.now();
-  const parsed = parseWhetstonEventData(log);
-
-  console.log(`\n🔷 [WHETSTONE] ${parsed.symbol || '?'} | ${parsed.tokenAddress.slice(0,10)}... | Block ${log.blockNumber}`);
-
-  // Only allow Bankr interface
-  const iface = (parsed.interface || '').toLowerCase();
-  if (iface !== 'bankr') {
-    console.log(`   ⚠️  Interface "${parsed.interface || 'none'}" not Bankr, skipping`);
-    return;
-  }
-
-  // Verify tx goes through ERC-4337 EntryPoint (blocks terminal scammers)
+// Process raw transaction to find IPFS CID and deployed token
+function processRawTransaction(tx, data, receipt) {
   try {
-    const tx = await provider.getTransaction(log.transactionHash);
-    if (!tx || tx.to?.toLowerCase() !== ENTRYPOINT_ADDRESS.toLowerCase()) {
-      console.log(`   🚫 Terminal deploy blocked — tx.to: ${tx?.to?.slice(0,10) || 'null'}... (not EntryPoint)`);
-      return;
+    const hex = data.startsWith('0x') ? data.slice(2) : data;
+    const ipfsIdx = hex.indexOf(IPFS_PREFIX_HEX);
+
+    if (ipfsIdx !== -1) {
+      let ipfs = "";
+      for (let i = ipfsIdx; i < hex.length; i += 2) {
+        const byte = parseInt(hex.slice(i, i + 2), 16);
+        if (byte >= 32 && byte <= 126) {
+          ipfs += String.fromCharCode(byte);
+        } else {
+          break;
+        }
+      }
+
+      // Find deployed token address from logs
+      let createdToken = "Unknown";
+      if (receipt && receipt.logs) {
+        const transferTopic = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+        const zeroAddressTopic = '0x0000000000000000000000000000000000000000000000000000000000000000';
+
+        for (const log of receipt.logs) {
+          if (log.topics[0] === transferTopic && log.topics[1] === zeroAddressTopic) {
+            createdToken = log.address;
+            break;
+          }
+        }
+      }
+
+      // Verify we found a valid token address
+      if (createdToken === "Unknown") {
+        console.log('⚠️ Could not find deployed token address in logs. Skipping broadcast.');
+        console.log('\x1b[35m%s\x1b[0m', '----------------------------------------');
+        return;
+      }
+
+      console.log(`Token:  ${createdToken}`);
+      console.log(`IPFS:   ${ipfs}`);
+      console.log(`Tx:     https://basescan.org/tx/${tx.hash}`);
+
+      // Clean IPFS link
+      const ipfsCid = ipfs.replace('ipfs://', '');
+      const serverNow = new Date().toISOString();
+
+      // Broadcast partial token data with IPFS CID
+      // Frontend will fetch metadata (name, symbol, image, description)
+      const tokenData = {
+        contract_address: createdToken,
+        name: "Loading...", // Placeholder
+        symbol: "...",      // Placeholder
+        ipfs_cid: ipfsCid,
+        tx_hash: tx.hash,
+        created_at: serverNow,
+        creator_address: tx.from,
+        // Other fields will be populated by frontend after fetching IPFS
+        image_url: null,
+        description: null,
+        twitter_link: null,
+      };
+
+      broadcastToken(tokenData);
+
+      console.log('\x1b[35m%s\x1b[0m', '----------------------------------------');
     }
-  } catch (err) {
-    console.error(`   ⚠️  EntryPoint check failed: ${err.message}, allowing token`);
-    // On RPC error, let the token through rather than blocking legit deploys
+  } catch (e) {
+    console.error('Error extraction:', e.message);
   }
-
-  const serverNow = new Date().toISOString();
-  const hasTwitter = !!parsed.tweetUrl;
-
-  const tokenData = {
-    contract_address: parsed.tokenAddress,
-    name: parsed.name,
-    symbol: parsed.symbol,
-    image_url: parsed.imageUrl,
-    description: parsed.description,
-    tx_hash: log.transactionHash,
-    created_at: serverNow,
-    creator_address: parsed.creatorAddress,
-    msg_sender: parsed.creatorAddress,
-    twitter_link: hasTwitter ? parsed.tweetUrl : null,
-    farcaster_link: null,
-    cast_hash: null,
-    website_link: null,
-    telegram_link: null,
-    discord_link: null,
-    social_context: {
-      interface: 'Bankr',
-      platform: hasTwitter ? 'X' : 'farcaster',
-      messageId: parsed.messageId || parsed.tweetUrl || '',
-      id: parsed.id || '',
-      xUsername: parsed.xUsername || null
-    }
-  };
-
-  broadcastToken(tokenData);
-  console.log(`   ⏱ ${Date.now() - t0}ms total`);
 }
 
 async function startListener() {
   try {
     const currentUrl = WSS_URLS[currentUrlIndex];
-    console.log('🔌 Connecting to Base RPC via WebSocket...');
-    console.log(`WSS URL: ${currentUrl} (${currentUrlIndex === 0 ? 'Primary' : 'Backup'})`);
+    console.log('Starting Aggressive BankrFindr Monitor...');
+    console.log(`WSS URL: ${currentUrl}`);
 
     provider = new ethers.WebSocketProvider(currentUrl);
 
-    const network = await provider.getNetwork();
-    console.log(`✅ Connected to network: ${network.name} (chainId: ${network.chainId})`);
-
-    const whetstonFilter = {
-      address: WHETSTONE_FACTORY
-    };
-
-    console.log(`📡 Listening to Whetstone Factory: ${WHETSTONE_FACTORY}`);
-
-    provider.on(whetstonFilter, async (log) => {
+    provider.on('block', async (blockNumber) => {
+      //console.log(`New block received: ${blockNumber}`);
       try {
-        if (log.topics[0] !== WHETSTONE_TOPIC) return;
-        await handleWhetstonEvent(log);
+        const block = await provider.send('eth_getBlockByNumber', [
+          ethers.toBeHex(blockNumber),
+          true
+        ]);
+
+        if (!block || !block.transactions) return;
+
+        for (const tx of block.transactions) {
+          const data = tx.input || tx.data || '';
+          if (data.includes(TARGET_SELECTOR) && data.includes(IPFS_PREFIX_HEX)) {
+            // Fetch receipt to find created token
+            const receipt = await provider.send('eth_getTransactionReceipt', [tx.hash]);
+            processRawTransaction(tx, data, receipt);
+          }
+        }
       } catch (error) {
-        console.error('❌ Whetstone event error:', error.message);
+        console.error(`Error processing block ${blockNumber}:`, error.message);
       }
     });
 
-    console.log('👂 Listening for Bankr tokens via Whetstone...\n');
-
-    reconnectAttempts = 0;
-
-    provider.websocket.on('error', (error) => {
-      console.error('WebSocket error:', error.message);
+    provider.websocket.on('error', (err) => {
+      console.error('WebSocket Error:', err.message);
     });
 
     provider.websocket.on('close', () => {
-      console.log('WebSocket connection closed, attempting to reconnect...');
+      console.log('WebSocket Connection Closed. Reconnecting...');
       reconnect();
     });
+
+    console.log('✅ Connected to RPC');
 
   } catch (error) {
     console.error('Error starting listener:', error.message);
@@ -290,6 +231,7 @@ async function reconnect() {
       return;
     }
 
+    // Cycle back to 0
     if (currentUrlIndex > 0) {
       currentUrlIndex = 0;
       reconnectAttempts = 0;
@@ -298,13 +240,17 @@ async function reconnect() {
       return;
     }
 
-    console.error('❌ All RPC endpoints failed. Exiting...');
-    process.exit(1);
+    console.error('❌ All RPC endpoints failed or max retries reached. Retrying primary in 30s...');
+    setTimeout(() => {
+      reconnectAttempts = 0;
+      startListener();
+    }, 30000);
+    return;
   }
 
   reconnectAttempts++;
   const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
-  console.log(`Reconnecting in ${delay/1000} seconds... (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
+  console.log(`Reconnecting in ${delay / 1000} seconds... (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
 
   setTimeout(startListener, delay);
 }

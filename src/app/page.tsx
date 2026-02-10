@@ -201,6 +201,7 @@ function HomeContent() {
 
       const gateways = [
         `https://ipfs.io/ipfs/${token.ipfs_cid}`,
+        `https://content.wrappr.wtf/ipfs/${token.ipfs_cid}`,
         `https://dweb.link/ipfs/${token.ipfs_cid}`,
         `https://nftstorage.link/ipfs/${token.ipfs_cid}`
       ];

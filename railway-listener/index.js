@@ -129,13 +129,14 @@ function extractTokenAddress(receipt) {
 async function fetchIpfsMetadata(ipfsCid) {
   const gateways = [
     'https://ipfs.io/ipfs/',
+    'https://content.wrappr.wtf/ipfs/',
     'https://dweb.link/ipfs/',
     'https://nftstorage.link/ipfs/'
   ];
 
   return Promise.any(
     gateways.map(async (base) => {
-      const res = await fetch(`${base}${ipfsCid}`, { signal: AbortSignal.timeout(8000) });
+      const res = await fetch(`${base}${ipfsCid}`, { signal: AbortSignal.timeout(4000) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       return { data, gatewayBase: base };

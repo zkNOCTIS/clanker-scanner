@@ -1,6 +1,5 @@
 require('dotenv').config();
 const { ethers } = require('ethers');
-const fetch = require('node-fetch');
 const http = require('http');
 const { WebSocketServer } = require('ws');
 
@@ -10,44 +9,27 @@ const WSS_URLS = [
   process.env.WSS_URL_BACKUP     // Backup RPC (optional)
 ].filter(Boolean); // Remove undefined/null entries
 
-const NEYNAR_API_KEY = process.env.NEYNAR_API_KEY; // Neynar API for Farcaster verification
-
 // Whetstone factory (Bankr deploys)
 const WHETSTONE_FACTORY = '0xE85A59c628F7d27878ACeB4bf3b35733630083a9';
 const WHETSTONE_TOPIC = '0x9299d1d1a88d8e1abdc591ae7a167a6bc63a8f17d695804e9091ee33aa89fb67';
+
+// ERC-4337 EntryPoint — legitimate Bankr deploys go through this
+// Terminal scammers call whetstone factory directly, bypassing EntryPoint
+const ENTRYPOINT_ADDRESS = '0x0000000071727De22E5E9d8BAf0edAc6f37da032';
 
 // In-memory token buffer
 const recentTokens = []; // Most recent first
 const MAX_TOKENS = 50;
 const seenContracts = new Set(); // Dedup — prevent broadcasting same token twice
 
-// Whitelisted Farcaster FIDs - these users can deploy without linked X account
-const WHITELISTED_FARCASTER_FIDS = new Set([
-  '886870'  // @bankr (bankrbot)
-]);
-
-// Blacklisted Farcaster FIDs - block these users from showing on scanner
-const BLACKLISTED_FARCASTER_FIDS = new Set([
-  '897406'  // @outflow.eth - spam deployer
-]);
-
-// ---- Neynar FID Cache ----
-const neynarCache = new Map(); // Map<FID, { hasLinkedX, xUsername, timestamp }>
-const NEYNAR_CACHE_TTL_MS = 3600_000; // 1 hour
-
-function cleanupCaches() {
-  const now = Date.now();
-  for (const [fid, entry] of neynarCache) {
-    if (now - entry.timestamp > NEYNAR_CACHE_TTL_MS) neynarCache.delete(fid);
-  }
-  // Keep seenContracts from growing forever — trim to last 500
+// Periodically trim seenContracts to prevent unbounded growth
+setInterval(() => {
   if (seenContracts.size > 500) {
     const arr = [...seenContracts];
     seenContracts.clear();
     arr.slice(-200).forEach(a => seenContracts.add(a));
   }
-}
-setInterval(cleanupCaches, 30_000);
+}, 30_000);
 
 // ---- WebSocket Server for direct browser push ----
 const WS_PORT = parseInt(process.env.PORT) || 3001;
@@ -114,64 +96,6 @@ let currentUrlIndex = 0;
 let provider;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
-
-async function checkFarcasterUserHasX(fid) {
-  const cached = neynarCache.get(fid);
-  if (cached) {
-    console.log(`   [NEYNAR CACHE] FID ${fid}: hasLinkedX=${cached.hasLinkedX}`);
-    return { hasLinkedX: cached.hasLinkedX, xUsername: cached.xUsername };
-  }
-
-  if (!NEYNAR_API_KEY || NEYNAR_API_KEY === 'your_neynar_api_key_here') {
-    console.log('⚠️  Neynar API key not configured, skipping Farcaster verification');
-    return false;
-  }
-
-  try {
-    console.log(`Checking Farcaster FID ${fid} for linked X account...`);
-
-    const response = await fetch(`https://api.neynar.com/v2/farcaster/user/bulk?fids=${fid}`, {
-      headers: {
-        'accept': 'application/json',
-        'api_key': NEYNAR_API_KEY
-      }
-    });
-
-    if (!response.ok) {
-      console.error(`Neynar API error: ${response.status}`);
-      return false;
-    }
-
-    const data = await response.json();
-
-    if (!data.users || data.users.length === 0) {
-      console.log(`Farcaster user ${fid} not found`);
-      neynarCache.set(fid, { hasLinkedX: false, xUsername: null, timestamp: Date.now() });
-      return false;
-    }
-
-    const user = data.users[0];
-    const verifiedXAccount = user.verified_accounts?.find(acc => acc.platform === 'x');
-
-    const result = {
-      hasLinkedX: !!(verifiedXAccount && verifiedXAccount.username),
-      xUsername: verifiedXAccount?.username || null
-    };
-
-    neynarCache.set(fid, { ...result, timestamp: Date.now() });
-
-    if (result.hasLinkedX) {
-      console.log(`✅ Farcaster user ${fid} (@${user.username}) has linked X: @${result.xUsername}`);
-    } else {
-      console.log(`❌ Farcaster user ${fid} (@${user.username}) has NO linked X account`);
-    }
-
-    return result;
-  } catch (error) {
-    console.error('Error checking Farcaster user:', error.message);
-    return false;
-  }
-}
 
 // Parse whetstone factory event data — extracts social context from JSON blocks in event data
 function parseWhetstonEventData(log) {
@@ -265,6 +189,18 @@ async function handleWhetstonEvent(log) {
   if (iface !== 'bankr') {
     console.log(`   ⚠️  Interface "${parsed.interface || 'none'}" not Bankr, skipping`);
     return;
+  }
+
+  // Verify tx goes through ERC-4337 EntryPoint (blocks terminal scammers)
+  try {
+    const tx = await provider.getTransaction(log.transactionHash);
+    if (!tx || tx.to?.toLowerCase() !== ENTRYPOINT_ADDRESS.toLowerCase()) {
+      console.log(`   🚫 Terminal deploy blocked — tx.to: ${tx?.to?.slice(0,10) || 'null'}... (not EntryPoint)`);
+      return;
+    }
+  } catch (err) {
+    console.error(`   ⚠️  EntryPoint check failed: ${err.message}, allowing token`);
+    // On RPC error, let the token through rather than blocking legit deploys
   }
 
   const serverNow = new Date().toISOString();

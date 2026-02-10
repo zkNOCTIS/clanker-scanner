@@ -107,25 +107,12 @@ async function rawBroadcast(signedTx: string, rpcUrl: string): Promise<string> {
   return json.result;
 }
 
-export async function executeBuy(
-  privateKey: string,
-  tokenAddress: string,
-  ethAmount: string,
+async function signAndBroadcast(
+  wallet: ethers.Wallet,
+  calldata: string,
+  amountInWei: bigint,
+  nonce: number,
 ): Promise<string> {
-  const amountInWei = ethers.parseEther(ethAmount);
-  const calldata = encodeV4Swap(tokenAddress, amountInWei);
-
-  // Use pre-cached wallet + nonce (zero RPC delay if preloaded)
-  let wallet = _wallet;
-  if (!wallet || _key !== privateKey) {
-    const provider = new ethers.JsonRpcProvider(BASE_RPCS[0], BASE_CHAIN_ID, {
-      staticNetwork: true,
-    });
-    wallet = new ethers.Wallet(privateKey, provider);
-  }
-
-  const nonce = _nonce ?? await wallet.getNonce();
-
   const tx: ethers.TransactionRequest = {
     to: UNIVERSAL_ROUTER,
     data: calldata,
@@ -139,14 +126,40 @@ export async function executeBuy(
   };
 
   const signedTx = await wallet.signTransaction(tx);
+  return Promise.any(BASE_RPCS.map((url) => rawBroadcast(signedTx, url)));
+}
 
-  // Increment nonce immediately for next tx
-  if (_nonce !== null) _nonce++;
+export async function executeBuy(
+  privateKey: string,
+  tokenAddress: string,
+  ethAmount: string,
+): Promise<string> {
+  const amountInWei = ethers.parseEther(ethAmount);
+  const calldata = encodeV4Swap(tokenAddress, amountInWei);
 
-  // Broadcast to all RPCs in parallel via raw fetch — first success wins
-  const hash = await Promise.any(
-    BASE_RPCS.map((url) => rawBroadcast(signedTx, url)),
-  );
+  let wallet = _wallet;
+  if (!wallet || _key !== privateKey) {
+    const provider = new ethers.JsonRpcProvider(BASE_RPCS[0], BASE_CHAIN_ID, {
+      staticNetwork: true,
+    });
+    wallet = new ethers.Wallet(privateKey, provider);
+  }
 
-  return hash;
+  const nonce = _nonce ?? await wallet.getNonce();
+
+  try {
+    const hash = await signAndBroadcast(wallet, calldata, amountInWei, nonce);
+    if (_nonce !== null) _nonce++;
+    return hash;
+  } catch (e: any) {
+    // Nonce stale (sold on GMGN etc.) — re-fetch and retry once
+    if (e.message?.toLowerCase().includes('nonce')) {
+      const freshNonce = await wallet.getNonce();
+      _nonce = freshNonce;
+      const hash = await signAndBroadcast(wallet, calldata, amountInWei, freshNonce);
+      _nonce = freshNonce + 1;
+      return hash;
+    }
+    throw e;
+  }
 }

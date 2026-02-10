@@ -140,7 +140,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
             <div className="flex items-center gap-3">
               <p className="text-lg font-mono text-[#00ff88]">${token.symbol}</p>
               {mcap !== null && (
-                <span className={`text-lg font-mono font-bold ${mcap >= 25000 ? 'text-[#00ff88]' : 'text-yellow-400'}`}>
+                <span className={`text-lg font-mono font-bold ${mcap >= 30000 ? 'text-[#00ff88]' : 'text-yellow-400'}`}>
                   MC: ${mcap >= 1000000 ? (mcap / 1000000).toFixed(1) + 'M' : mcap >= 1000 ? (mcap / 1000).toFixed(1) + 'K' : mcap.toFixed(0)}
                 </span>
               )}

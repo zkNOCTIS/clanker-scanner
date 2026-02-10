@@ -109,7 +109,7 @@ function HomeContent() {
 
     const processTokens = (incoming: ClankerToken[]) => {
       const unseen = incoming.filter(
-        (t) => !seenRef.current.has(t.contract_address) && !deletedRef.current.has(t.contract_address) && hasRealSocialContext(t)
+        (t) => !seenRef.current.has(t.contract_address) && !deletedRef.current.has(t.contract_address) && !invalidRef.current.has(t.ipfs_cid || "") && (t.ipfs_cid || hasRealSocialContext(t))
       );
 
       if (unseen.length > 0) {
@@ -181,6 +181,88 @@ function HomeContent() {
     };
   }, [scanning]);
 
+  // IPFS Metadata fetching
+  const fetchedCidsRef = useRef<Set<string>>(new Set());
+  const invalidRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (tokens.length === 0) return;
+
+    const tokensToFetch = tokens.filter(
+      (t) => t.ipfs_cid && !t.name.startsWith("Loading") && !fetchedCidsRef.current.has(t.ipfs_cid) && !invalidRef.current.has(t.ipfs_cid)
+    );
+
+    // Also fetch for "Loading..." tokens even if we haven't seen them, to populate data
+    const loadingTokens = tokens.filter(
+      (t) => t.ipfs_cid && t.name === "Loading..." && !fetchedCidsRef.current.has(t.ipfs_cid) && !invalidRef.current.has(t.ipfs_cid)
+    );
+
+    const batch = [...tokensToFetch, ...loadingTokens].slice(0, 5); // Rate limit concurrent fetches
+
+    batch.forEach((token) => {
+      if (!token.ipfs_cid) return;
+      fetchedCidsRef.current.add(token.ipfs_cid);
+
+      const gateways = [
+        `https://ipfs.io/ipfs/${token.ipfs_cid}`,
+        `https://dweb.link/ipfs/${token.ipfs_cid}`,
+        `https://gateway.pinata.cloud/ipfs/${token.ipfs_cid}`
+      ];
+
+      // Try all gateways and take the first valid one
+      Promise.any(
+        gateways.map(url =>
+          fetch(url).then(res => {
+            if (!res.ok) throw new Error(`Status ${res.status}`);
+            return res.json().then(data => ({ data, url }));
+          })
+        )
+      )
+        .then(({ data, url }) => {
+          // Validation Logic (from user's script)
+          const description = data.description || '';
+          const tweetUrl = data.tweet_url || '';
+
+          // Only filter out if there is NO valid tweet link
+          const isValidTweet = tweetUrl.includes('twitter.com') || tweetUrl.includes('x.com');
+
+          if (!isValidTweet) {
+            console.log(`Hidden invalid token (no tweet): ${token.contract_address} (${description})`);
+            if (token.ipfs_cid) invalidRef.current.add(token.ipfs_cid);
+            // Remove from list
+            setTokens(prev => prev.filter(t => t.contract_address !== token.contract_address));
+            return;
+          }
+
+          // Determine which gateway was used for image replacement
+          const winningGatewayBase = url.replace(token.ipfs_cid!, "");
+
+          setTokens(prev => prev.map(t => {
+            if (t.ipfs_cid === token.ipfs_cid) {
+              return {
+                ...t,
+                name: data.name || t.name,
+                symbol: data.symbol || t.symbol,
+                description: data.description || t.description,
+                image_url: data.image?.replace('ipfs://', winningGatewayBase) || data.image_url,
+                twitter_link: data.tweet_url || t.twitter_link,
+                social_context: {
+                  ...t.social_context,
+                  interface: "Bankr",
+                  platform: "X",
+                  messageId: data.tweet_url || ""
+                } as any
+              };
+            }
+            return t;
+          }));
+        })
+        .catch(err => {
+          console.error(`Failed to fetch IPFS ${token.ipfs_cid} from all gateways:`, err);
+        });
+    });
+  }, [tokens]);
+
   // FxTwitter fee recommendation check (async, non-blocking)
   const checkedRef = useRef<Set<string>>(new Set());
   const recommendedTweetsRef = useRef<Set<string>>(new Set());
@@ -213,17 +295,17 @@ function HomeContent() {
               prev.map((t) =>
                 t.contract_address === token.contract_address
                   ? {
-                      ...t,
-                      recommended: true,
-                      recommended_for: matchedUser,
-                      duplicate_recommendation: isDuplicate,
-                    }
+                    ...t,
+                    recommended: true,
+                    recommended_for: matchedUser,
+                    duplicate_recommendation: isDuplicate,
+                  }
                   : t
               )
             );
           }
         })
-        .catch(() => {});
+        .catch(() => { });
     });
   }, [tokens]);
 
@@ -238,11 +320,10 @@ function HomeContent() {
           <div className="flex items-center gap-3">
             <button
               onClick={() => setScanning(!scanning)}
-              className={`px-3 py-1 font-mono text-sm border ${
-                scanning
-                  ? "border-[#00ff88] text-[#00ff88]"
-                  : "border-gray-500 text-gray-500"
-              }`}
+              className={`px-3 py-1 font-mono text-sm border ${scanning
+                ? "border-[#00ff88] text-[#00ff88]"
+                : "border-gray-500 text-gray-500"
+                }`}
             >
               {scanning ? "● LIVE" : "○ PAUSED"}
             </button>
@@ -324,15 +405,14 @@ function HomeContent() {
                         <div className={`font-mono text-sm truncate ${token.recommended && !token.duplicate_recommendation ? "text-[#a855f7]" : "text-white"}`}>${token.symbol}</div>
                         <div className="font-mono text-xs text-gray-500">{timeStr} ago</div>
                       </div>
-                      <span className={`font-mono text-xs ${
-                        mcaps[token.contract_address] >= 25000 ? 'text-[#00ff88]' : 'text-yellow-400'
-                      }`}>
+                      <span className={`font-mono text-xs ${mcaps[token.contract_address] >= 25000 ? 'text-[#00ff88]' : 'text-yellow-400'
+                        }`}>
                         {mcaps[token.contract_address]
                           ? `$${mcaps[token.contract_address] >= 1000000
-                              ? (mcaps[token.contract_address] / 1000000).toFixed(1) + 'M'
-                              : mcaps[token.contract_address] >= 1000
-                                ? (mcaps[token.contract_address] / 1000).toFixed(0) + 'K'
-                                : mcaps[token.contract_address].toFixed(0)}`
+                            ? (mcaps[token.contract_address] / 1000000).toFixed(1) + 'M'
+                            : mcaps[token.contract_address] >= 1000
+                              ? (mcaps[token.contract_address] / 1000).toFixed(0) + 'K'
+                              : mcaps[token.contract_address].toFixed(0)}`
                           : '...'}
                       </span>
                     </button>

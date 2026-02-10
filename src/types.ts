@@ -11,6 +11,7 @@ export interface ClankerToken {
   description?: string;
   img_url?: string;
   image_url?: string; // Railway format
+  ipfs_cid?: string; // New IPFS format
   creator_address?: string | null; // Railway format
   twitter_link?: string | null; // Railway format
   farcaster_link?: string | null; // Railway format

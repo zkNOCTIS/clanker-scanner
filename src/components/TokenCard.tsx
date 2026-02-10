@@ -30,7 +30,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
 
   // Update timestamp every 10 seconds
   useEffect(() => {
-    const interval = setInterval(() => setTick(t => t + 1), 10000);
+    const interval = setInterval(() => setTick(t => t + 1), 1000);
     return () => clearInterval(interval);
   }, []);
 

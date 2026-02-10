@@ -11,6 +11,9 @@ const BASE_RPCS = [
   'https://mainnet.base.org',
   'https://base.llamarpc.com',
   'https://1rpc.io/base',
+  'https://base.drpc.org',
+  'https://base-mainnet.public.blastapi.io',
+  'https://base.meowrpc.com',
 ];
 
 const abiCoder = ethers.AbiCoder.defaultAbiCoder();
@@ -22,20 +25,27 @@ const executeIface = new ethers.Interface([
 let _wallet: ethers.Wallet | null = null;
 let _nonce: number | null = null;
 let _key: string | null = null;
+let _nonceInterval: ReturnType<typeof setInterval> | null = null;
 
-/** Call once when wallet key is set/changed. Fetches nonce in background. */
+/** Call once when wallet key is set/changed. Fetches nonce + starts auto-refresh. */
 export function preloadWallet(privateKey: string) {
   if (_key === privateKey && _wallet) return;
   _key = privateKey;
+  if (_nonceInterval) clearInterval(_nonceInterval);
   const provider = new ethers.JsonRpcProvider(BASE_RPCS[0], BASE_CHAIN_ID, {
     staticNetwork: true,
   });
   _wallet = new ethers.Wallet(privateKey, provider);
   _wallet.getNonce().then((n) => { _nonce = n; }).catch(() => {});
+  // Auto-refresh nonce every 10s so it stays current after external txs (GMGN sells etc.)
+  _nonceInterval = setInterval(() => {
+    _wallet?.getNonce().then((n) => { _nonce = n; }).catch(() => {});
+  }, 5_000);
 }
 
 /** Call when wallet is disconnected */
 export function clearWalletCache() {
+  if (_nonceInterval) { clearInterval(_nonceInterval); _nonceInterval = null; }
   _wallet = null;
   _nonce = null;
   _key = null;

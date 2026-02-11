@@ -15,8 +15,8 @@ const RPC_URLS = [
 const STATEVIEW = "0xA3c0c9b65baD0b08107Aa264b0f3dB444b867A71";
 const POOL_CONFIGS = [
   { hook: "0x3e342a06f9592459D75721d6956B570F02eF2Dc0", fee: 12000 },      // Bankr (X/Twitter)
-  { hook: "0xd60D6B218116cFd801E28F78d011a203D2b068Cc", fee: 12000 },      // Farcaster
-  { hook: "0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC", fee: 8388608 },   // Clanker AI
+  { hook: "0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC", fee: 8388608 },   // Clanker AI (X/Twitter)
+  { hook: "0xd60D6B218116cFd801E28F78d011a203D2b068Cc", fee: 8388608 },   // Clanker (Farcaster)
 ];
 const WETH = "0x4200000000000000000000000000000000000006";
 const CHAINLINK_ETH_USD = "0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70";

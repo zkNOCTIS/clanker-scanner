@@ -12,6 +12,7 @@ const TICK_SPACING = 200;
 const BASE_CHAIN_ID = 8453;
 
 const BASE_RPCS = [
+  'https://mainnet-sequencer.base.org',  // Direct sequencer — fastest path to block inclusion
   'https://mainnet.base.org',
   'https://base.llamarpc.com',
   'https://1rpc.io/base',

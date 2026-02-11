@@ -40,11 +40,13 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
 
   // Fee countdown — Clanker: quadratic, Bankr v2: LINEAR
   // Clanker: 66.7% → 4.2% over 15s (quadratic) | Bankr v2: 80% → 1.2% over 10s (linear)
+  // +2s flight time offset: shows estimated fee at execution, not at click time
   const isClanker = token.factory_type === "clanker";
   const FEE_DURATION = isClanker ? 15 : 10;
   const FEE_START = isClanker ? 66.7 : 80;
   const FEE_END = isClanker ? 4.2 : 1.2;
-  const secondsSinceDeploy = Math.floor((Date.now() - new Date(token.created_at).getTime()) / 1000);
+  const FLIGHT_TIME = 2; // ~2s click-to-execution on Base (verified on-chain)
+  const secondsSinceDeploy = Math.floor((Date.now() - new Date(token.created_at).getTime()) / 1000) + FLIGHT_TIME;
   const feeRemaining = Math.max(0, FEE_DURATION - secondsSinceDeploy);
   const hasFee = feeRemaining > 0;
 

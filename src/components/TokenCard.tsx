@@ -5,6 +5,14 @@ import { ClankerToken, getTwitterUsername, getTweetId, getTweetUrl, getCastUrl }
 import { TweetEmbed } from "./TweetEmbed";
 import { executeBuy } from "@/lib/swap";
 
+// Rolling flight time measurement — auto-calibrates from actual buys
+let _flightTimes: number[] = [];
+function getFlightTime(): number {
+  if (_flightTimes.length === 0) return 3; // default until first measurement
+  const avg = _flightTimes.reduce((a, b) => a + b, 0) / _flightTimes.length;
+  return Math.round(avg);
+}
+
 function formatTimeAgo(dateStr: string): string {
   const now = Date.now();
   const created = new Date(dateStr).getTime();
@@ -39,12 +47,12 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
 
   // Fee countdown — Clanker: quadratic, Bankr v2: LINEAR
   // Clanker: 66.7% → 4.2% over 15s (quadratic) | Bankr v2: 80% → 1.2% over 10s (linear)
-  // +2s flight time offset: shows estimated fee at execution, not at click time
+  // Flight time offset auto-calibrates from actual buy measurements
   const isClanker = token.factory_type === "clanker";
   const FEE_DURATION = isClanker ? 15 : 10;
   const FEE_START = isClanker ? 66.7 : 80;
   const FEE_END = isClanker ? 4.2 : 1.2;
-  const FLIGHT_TIME = 2; // ~2s click-to-execution on Base with 0.15 gwei priority fee
+  const FLIGHT_TIME = getFlightTime();
   const secondsSinceDeploy = Math.floor((Date.now() - new Date(token.created_at).getTime()) / 1000) + FLIGHT_TIME;
   const feeRemaining = Math.max(0, FEE_DURATION - secondsSinceDeploy);
   const hasFee = feeRemaining > 0;
@@ -253,12 +261,13 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
                     if (buyState === "sending") return;
                     setBuyState("sending");
                     try {
+                      const sendTime = Math.floor(Date.now() / 1000);
                       const hash = await executeBuy(walletKey, token.contract_address, buyAmount, token.factory_type || "bankr");
                       // Immediately back to idle so user can buy again
                       setBuyState("idle");
                       const toastId = Date.now();
                       setToasts(prev => [...prev, { id: toastId, status: "pending", hash }]);
-                      // Poll receipt in background
+                      // Poll receipt in background, measure flight time
                       (async () => {
                         const rpc = "https://mainnet.base.org";
                         for (let i = 0; i < 30; i++) {
@@ -271,7 +280,25 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
                             const json = await res.json();
                             if (json.result) {
                               const success = json.result.status === "0x1";
-                              setToasts(prev => prev.map(t => t.id === toastId ? { ...t, status: success ? "confirmed" : "reverted" } : t));
+                              // Measure flight time from block timestamp
+                              let flightMsg = "";
+                              try {
+                                const blockRes = await fetch(rpc, {
+                                  method: "POST", headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getBlockByNumber", params: [json.result.blockNumber, false] }),
+                                });
+                                const blockJson = await blockRes.json();
+                                if (blockJson.result) {
+                                  const blockTs = parseInt(blockJson.result.timestamp, 16);
+                                  const flight = blockTs - sendTime;
+                                  if (flight > 0 && flight < 30) {
+                                    _flightTimes.push(flight);
+                                    if (_flightTimes.length > 10) _flightTimes.shift();
+                                    flightMsg = ` (${flight}s flight)`;
+                                  }
+                                }
+                              } catch {}
+                              setToasts(prev => prev.map(t => t.id === toastId ? { ...t, status: success ? "confirmed" : "reverted", msg: flightMsg } : t));
                               setTimeout(() => setToasts(prev => prev.filter(t => t.id !== toastId)), 8000);
                               return;
                             }
@@ -329,7 +356,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
                       >
                         <span>
                           {t.status === "pending" && "PENDING..."}
-                          {t.status === "confirmed" && "CONFIRMED"}
+                          {t.status === "confirmed" && <>CONFIRMED{t.msg}</>}
                           {t.status === "reverted" && "REVERTED"}
                           {t.status === "error" && `FAILED: ${t.msg}`}
                         </span>

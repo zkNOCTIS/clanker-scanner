@@ -94,6 +94,12 @@ const CLANKER_AI_FACTORY = '0xe85a59c628f7d27878aceb4bf3b35733630083a9'; // lowe
 const CLANKER_AI_EVENT_TOPIC = '0x9299d1d1a88d8e1abdc591ae7a167a6bc63a8f17d695804e9091ee33aa89fb67';
 const abiCoder = new ethers.AbiCoder();
 
+// Whitelist of legitimate Clanker deployer addresses (lowercase)
+const WHITELISTED_DEPLOYERS = new Set([
+  '0x2112b8456ac07c15fa31ddf3bf713e77716ff3f9',
+  '0xd9acd656a5f1b519c9e76a2a6092265a74186e58',
+]);
+
 let currentUrlIndex = 0;
 let provider;
 let reconnectAttempts = 0;
@@ -175,8 +181,22 @@ async function processClankerAiTx(tx, receipt, t0) {
     const symbol = decoded[3] || '???';
     const socialContextRaw = decoded[5] || '{}';
 
+    // Check deployer whitelist
+    const deployer = tx.from?.toLowerCase();
+    if (!deployer || !WHITELISTED_DEPLOYERS.has(deployer)) {
+      console.log(`⚠️ Clanker AI: Deployer ${deployer || 'unknown'} not whitelisted, skipping scam`);
+      return;
+    }
+
     let socialContext = {};
     try { socialContext = JSON.parse(socialContextRaw); } catch {}
+
+    // Skip clank.fun deploys (no useful social context)
+    const iface = (socialContext.interface || '').toLowerCase();
+    if (iface === 'clank.fun') {
+      console.log(`⚠️ Clanker AI: Skipping clank.fun deploy for ${symbol}`);
+      return;
+    }
 
     const platform = (socialContext.platform || '').toLowerCase();
     const messageId = socialContext.messageId || '';

@@ -326,8 +326,10 @@ function HomeContent() {
       {/* Header */}
       <header className="sticky top-0 z-50 bg-[#0d1117] border-b border-[#00d9ff]/20">
         <div className="max-w-[1800px] mx-auto px-4 py-3 flex items-center justify-between">
-          <h1 className="text-2xl font-bold font-mono tracking-wider text-[#00d9ff]">
-            CLANKER SCANNER
+          <h1 className="text-2xl font-bold font-mono tracking-wider">
+            <span className="text-[#f97316]">CLANKER</span>{" "}
+            <span className="text-[#00d9ff]">X</span>{" "}
+            <span className="text-[#3b82f6]">BANKR</span>
           </h1>
           <div className="flex items-center gap-3">
             <button
@@ -413,7 +415,7 @@ function HomeContent() {
                 <span className="font-mono text-sm text-[#00d9ff]">RECENT ({visibleTokens.length})</span>
               </div>
               <div className="max-h-[calc(100vh-8rem)] overflow-y-auto">
-                {visibleTokens.map((token, index) => {
+                {visibleTokens.map((token) => {
                   const timeAgo = Math.floor((Date.now() - new Date(token.created_at).getTime()) / 1000);
                   const timeStr = timeAgo < 60 ? `${timeAgo}s` : timeAgo < 3600 ? `${Math.floor(timeAgo / 60)}m` : `${Math.floor(timeAgo / 3600)}h`;
 
@@ -423,7 +425,7 @@ function HomeContent() {
                       onClick={() => {
                         document.getElementById(`token-${token.contract_address}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
                       }}
-                      className={`w-full px-3 py-2 flex items-center justify-between hover:bg-[#30363d]/50 transition-colors text-left ${token.recommended && !token.duplicate_recommendation ? "bg-[#a855f7]/10 border-l-2 border-[#a855f7]" : index === 0 ? "bg-[#00ff88]/5" : ""}`}
+                      className={`w-full px-3 py-2 flex items-center justify-between hover:brightness-125 transition-colors text-left ${token.recommended && !token.duplicate_recommendation ? "bg-[#a855f7]/10 border-l-2 border-[#a855f7]" : token.factory_type === "clanker" ? "bg-[#f97316]/10 border-l-2 border-[#f97316]/50" : "bg-[#3b82f6]/10 border-l-2 border-[#3b82f6]/50"}`}
                     >
                       <div className="min-w-0">
                         <div className={`font-mono text-sm truncate ${token.recommended && !token.duplicate_recommendation ? "text-[#a855f7]" : "text-white"}`}>${token.symbol}</div>

@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Clanker Scanner",
-  description: "Live Clanker token deploy scanner",
+  title: "Clanker X Bankr",
+  description: "Live Clanker & Bankr token deploy scanner",
 };
 
 export default function RootLayout({

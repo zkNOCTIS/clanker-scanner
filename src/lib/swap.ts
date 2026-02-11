@@ -125,17 +125,6 @@ async function rawBroadcast(signedTx: string, rpcUrl: string): Promise<string> {
   return json.result;
 }
 
-/** Server-side relay — hits sequencer + private RPCs that browser can't reach */
-async function serverBroadcast(signedTx: string): Promise<string> {
-  const res = await fetch('/api/broadcast', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ signedTx }),
-  });
-  const json = await res.json();
-  if (json.error) throw new Error(json.error);
-  return json.hash;
-}
 
 async function signAndBroadcast(
   wallet: ethers.Wallet,
@@ -156,11 +145,7 @@ async function signAndBroadcast(
   };
 
   const signedTx = await wallet.signTransaction(tx);
-  // Race: server relay (sequencer + private RPCs) vs browser direct RPCs
-  return Promise.any([
-    serverBroadcast(signedTx),
-    ...BASE_RPCS.map((url) => rawBroadcast(signedTx, url)),
-  ]);
+  return Promise.any(BASE_RPCS.map((url) => rawBroadcast(signedTx, url)));
 }
 
 export async function executeBuy(

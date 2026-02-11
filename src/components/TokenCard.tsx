@@ -38,8 +38,8 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
     return () => clearInterval(interval);
   }, []);
 
-  // Fee countdown — quadratic decay: fee = endFee + (startFee - endFee) * (timeRemaining / duration)²
-  // Clanker: 66.7% → 4.2% over 15s | Bankr v2: 80% → 1.2% over 10s
+  // Fee countdown — Clanker: quadratic, Bankr v2: LINEAR
+  // Clanker: 66.7% → 4.2% over 15s (quadratic) | Bankr v2: 80% → 1.2% over 10s (linear)
   const isClanker = token.factory_type === "clanker";
   const FEE_DURATION = isClanker ? 15 : 10;
   const FEE_START = isClanker ? 66.7 : 80;
@@ -241,7 +241,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
         {/* Buy button */}
         {walletKey ? (
           (() => {
-            const feePercent = hasFee ? Math.round(FEE_END + (FEE_START - FEE_END) * Math.pow(feeRemaining / FEE_DURATION, 2)) : 0;
+            const feePercent = hasFee ? Math.round(FEE_END + (FEE_START - FEE_END) * (isClanker ? Math.pow(feeRemaining / FEE_DURATION, 2) : feeRemaining / FEE_DURATION)) : 0;
             const feeColor = feePercent > 40 ? "#ff4444" : feePercent > 20 ? "#ff8800" : feePercent > 10 ? "#ffcc00" : "#00ff88";
             const progress = hasFee ? Math.min(100, (secondsSinceDeploy / FEE_DURATION) * 100) : 100;
 

@@ -136,15 +136,6 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
               <span className="text-gray-500 font-mono text-xs">
                 {formatTimeAgo(token.created_at)}
               </span>
-              {isClanker ? (
-                <span className="px-3 py-1 text-xs font-mono font-bold bg-[#f97316] text-black rounded">
-                  CLANKER
-                </span>
-              ) : (
-                <span className="px-3 py-1 text-xs font-mono font-bold bg-[#3b82f6] text-white rounded">
-                  BANKR
-                </span>
-              )}
               {platform === "X" && (
                 <svg className={`w-4 h-4 ${isClanker ? "text-[#f97316]" : "text-[#00d9ff]"}`} viewBox="0 0 24 24" fill="currentColor">
                   <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />

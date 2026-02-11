@@ -76,16 +76,16 @@ function encodeV4Swap(tokenAddress: string, amountInWei: bigint, factoryType: 'b
     [ADDRESS_THIS, amountInWei]
   );
 
-  // V4 action 0x0b: SETTLE — router settles WETH from its own balance
-  const settleParams = abiCoder.encode(
-    ['address', 'uint256', 'bool'],
-    [weth, CONTRACT_BALANCE, false]
-  );
-
   // V4 action 0x06: SWAP_EXACT_IN_SINGLE
   const swapParams = abiCoder.encode(
     ['(address,address,uint24,int24,address,bool,uint128,uint128,bytes)'],
-    [[currency0, currency1, fee, TICK_SPACING, hook, zeroForOne, amountInWei, 0, '0x00']]
+    [[currency0, currency1, fee, TICK_SPACING, hook, zeroForOne, amountInWei, 0, '0x']]
+  );
+
+  // V4 action 0x0b: SETTLE — router settles WETH from its own balance
+  const settleParams = abiCoder.encode(
+    ['address', 'uint256', 'bool'],
+    [weth, amountInWei, false]
   );
 
   // V4 action 0x0f: TAKE_ALL — take output tokens to msg.sender
@@ -94,10 +94,10 @@ function encodeV4Swap(tokenAddress: string, amountInWei: bigint, factoryType: 'b
     [token, 0]
   );
 
-  // V4_SWAP: SETTLE → SWAP → TAKE_ALL
+  // V4_SWAP: SWAP → SETTLE → TAKE_ALL (matches on-chain working format)
   const v4SwapInput = abiCoder.encode(
     ['bytes', 'bytes[]'],
-    ['0x0b060f', [settleParams, swapParams, takeParams]]
+    ['0x060b0f', [swapParams, settleParams, takeParams]]
   );
 
   const deadline = Math.floor(Date.now() / 1000) + 120;

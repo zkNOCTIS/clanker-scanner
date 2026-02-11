@@ -322,9 +322,9 @@ function HomeContent() {
   const visibleTokens = tokens.filter(t => t.name !== "Loading...");
 
   return (
-    <main className="min-h-screen bg-[#0d1117]">
+    <main className="min-h-screen bg-[#0a0a0a]">
       {/* Header */}
-      <header className="sticky top-0 z-50 bg-[#0d1117] border-b border-[#00d9ff]/20">
+      <header className="sticky top-0 z-50 bg-[#0a0a0a] border-b border-[#00d9ff]/20">
         <div className="max-w-[1800px] mx-auto px-4 py-3 flex items-center justify-between">
           <h1 className="text-2xl font-bold font-mono tracking-wider">
             <span className="text-[#f97316]">CLANKER</span>{" "}

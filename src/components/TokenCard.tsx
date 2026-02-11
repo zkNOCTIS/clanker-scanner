@@ -146,7 +146,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
                 </span>
               )}
               {platform === "X" && (
-                <svg className="w-4 h-4 text-[#00d9ff]" viewBox="0 0 24 24" fill="currentColor">
+                <svg className={`w-4 h-4 ${isClanker ? "text-[#f97316]" : "text-[#00d9ff]"}`} viewBox="0 0 24 24" fill="currentColor">
                   <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
                 </svg>
               )}
@@ -154,9 +154,9 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
                 <span className="text-purple-400 font-mono text-sm">FC</span>
               )}
             </div>
-            <h2 className="text-2xl font-mono font-bold text-[#00d9ff] truncate">{token.name}</h2>
+            <h2 className={`text-2xl font-mono font-bold truncate ${isClanker ? "text-[#f97316]" : "text-[#00d9ff]"}`}>{token.name}</h2>
             <div className="flex items-center gap-3">
-              <p className="text-lg font-mono text-[#00ff88]">${token.symbol}</p>
+              <p className={`text-lg font-mono ${isClanker ? "text-[#f97316]" : "text-[#00ff88]"}`}>${token.symbol}</p>
               {mcap !== null && (
                 <span className={`text-lg font-mono font-bold ${mcap >= 35000 ? 'text-[#00ff88]' : 'text-yellow-400'}`}>
                   MC: ${mcap >= 1000000 ? (mcap / 1000000).toFixed(1) + 'M' : mcap >= 1000 ? (mcap / 1000).toFixed(1) + 'K' : mcap.toFixed(0)}
@@ -172,18 +172,18 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
                 href={`https://x.com/${twitterStats.replied_to_username}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex flex-col items-center justify-center gap-2 px-6 py-4 bg-blue-500/10 border-2 border-blue-500/30 rounded-lg hover:bg-blue-500/20 hover:border-blue-500/50 transition-all min-w-[200px]"
+                className={`flex flex-col items-center justify-center gap-2 px-6 py-4 border-2 rounded-lg transition-all min-w-[200px] ${isClanker ? "bg-orange-500/10 border-orange-500/30 hover:bg-orange-500/20 hover:border-orange-500/50" : "bg-blue-500/10 border-blue-500/30 hover:bg-blue-500/20 hover:border-blue-500/50"}`}
               >
                 <div className="flex items-center gap-2">
-                  <svg className="w-5 h-5 text-blue-400" fill="currentColor" viewBox="0 0 24 24">
+                  <svg className={`w-5 h-5 ${isClanker ? "text-orange-400" : "text-blue-400"}`} fill="currentColor" viewBox="0 0 24 24">
                     <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                   </svg>
-                  <span className="text-xl font-mono font-bold text-blue-400">
+                  <span className={`text-xl font-mono font-bold ${isClanker ? "text-orange-400" : "text-blue-400"}`}>
                     {twitterStats.replied_to_followers_text}
                   </span>
                 </div>
-                <p className="text-xs font-mono text-blue-300">Smart Followers</p>
-                <p className="text-xs font-mono text-blue-300">
+                <p className={`text-xs font-mono ${isClanker ? "text-orange-300" : "text-blue-300"}`}>Smart Followers</p>
+                <p className={`text-xs font-mono ${isClanker ? "text-orange-300" : "text-blue-300"}`}>
                   Reply to @{twitterStats.replied_to_username}
                 </p>
               </a>
@@ -195,7 +195,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
         <div className="mt-4 flex flex-wrap items-center gap-4">
           <button
             onClick={copyCA}
-            className="flex items-center gap-1 text-[#00d9ff] font-mono text-xs hover:bg-[#00d9ff]/10 px-2 py-1 rounded transition-colors"
+            className={`flex items-center gap-1 font-mono text-xs px-2 py-1 rounded transition-colors ${isClanker ? "text-[#f97316] hover:bg-[#f97316]/10" : "text-[#00d9ff] hover:bg-[#00d9ff]/10"}`}
           >
             <span className="text-gray-500">CA:</span>
             {token.contract_address.slice(0, 10)}...{token.contract_address.slice(-6)}

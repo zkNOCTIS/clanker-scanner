@@ -141,7 +141,7 @@ async function signAndBroadcast(
     type: 2,
     gasLimit: 350_000n,
     maxFeePerGas: ethers.parseUnits('0.5', 'gwei'),
-    maxPriorityFeePerGas: ethers.parseUnits('0.01', 'gwei'),
+    maxPriorityFeePerGas: ethers.parseUnits('0.15', 'gwei'),
   };
 
   const signedTx = await wallet.signTransaction(tx);

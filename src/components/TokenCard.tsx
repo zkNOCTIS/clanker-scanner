@@ -23,9 +23,8 @@ function formatTimeAgo(dateStr: string): string {
 export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = false, walletKey = null, buyAmount = "0.005", mcap = null }: { token: ClankerToken; isLatest?: boolean; onTweetDeleted?: () => void; shouldFetchStats?: boolean; walletKey?: string | null; buyAmount?: string; mcap?: number | null }) {
   const [copied, setCopied] = useState(false);
   const [, setTick] = useState(0);
-  const [buyState, setBuyState] = useState<"idle" | "sending" | "pending" | "confirmed" | "reverted" | "error">("idle");
-  const [txHash, setTxHash] = useState<string | null>(null);
-  const [buyError, setBuyError] = useState<string | null>(null);
+  const [buyState, setBuyState] = useState<"idle" | "sending">("idle");
+  const [toasts, setToasts] = useState<{ id: number; status: "pending" | "confirmed" | "reverted" | "error"; hash?: string; msg?: string }[]>([]);
   const [twitterStats, setTwitterStats] = useState<{
     replied_to_username: string;
     replied_to_followers: number;
@@ -240,7 +239,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
           </div>
         )}
 
-        {/* Buy button */}
+        {/* Buy button + toasts */}
         {walletKey ? (
           (() => {
             const feePercent = hasFee ? Math.round(FEE_END + (FEE_START - FEE_END) * (isClanker ? Math.pow(feeRemaining / FEE_DURATION, 2) : feeRemaining / FEE_DURATION)) : 0;
@@ -248,90 +247,103 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
             const progress = hasFee ? Math.min(100, (secondsSinceDeploy / FEE_DURATION) * 100) : 100;
 
             return (
-              <button
-                onClick={async () => {
-                  if (buyState === "sending" || buyState === "pending") return;
-                  setBuyState("sending");
-                  try {
-                    const hash = await executeBuy(walletKey, token.contract_address, buyAmount, token.factory_type || "bankr");
-                    setTxHash(hash);
-                    setBuyState("pending");
-                    const rpc = "https://mainnet.base.org";
-                    for (let i = 0; i < 30; i++) {
-                      await new Promise(r => setTimeout(r, 1000));
-                      try {
-                        const res = await fetch(rpc, {
-                          method: "POST", headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getTransactionReceipt", params: [hash] }),
-                        });
-                        const json = await res.json();
-                        if (json.result) {
-                          const success = json.result.status === "0x1";
-                          setBuyState(success ? "confirmed" : "reverted");
-                          setTimeout(() => setBuyState("idle"), 10000);
-                          return;
+              <>
+                <button
+                  onClick={async () => {
+                    if (buyState === "sending") return;
+                    setBuyState("sending");
+                    try {
+                      const hash = await executeBuy(walletKey, token.contract_address, buyAmount, token.factory_type || "bankr");
+                      // Immediately back to idle so user can buy again
+                      setBuyState("idle");
+                      const toastId = Date.now();
+                      setToasts(prev => [...prev, { id: toastId, status: "pending", hash }]);
+                      // Poll receipt in background
+                      (async () => {
+                        const rpc = "https://mainnet.base.org";
+                        for (let i = 0; i < 30; i++) {
+                          await new Promise(r => setTimeout(r, 1000));
+                          try {
+                            const res = await fetch(rpc, {
+                              method: "POST", headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getTransactionReceipt", params: [hash] }),
+                            });
+                            const json = await res.json();
+                            if (json.result) {
+                              const success = json.result.status === "0x1";
+                              setToasts(prev => prev.map(t => t.id === toastId ? { ...t, status: success ? "confirmed" : "reverted" } : t));
+                              setTimeout(() => setToasts(prev => prev.filter(t => t.id !== toastId)), 8000);
+                              return;
+                            }
+                          } catch {}
                         }
-                      } catch {}
+                        // Timeout — assume confirmed
+                        setToasts(prev => prev.map(t => t.id === toastId ? { ...t, status: "confirmed" } : t));
+                        setTimeout(() => setToasts(prev => prev.filter(t => t.id !== toastId)), 8000);
+                      })();
+                    } catch (e: any) {
+                      setBuyState("idle");
+                      const toastId = Date.now();
+                      setToasts(prev => [...prev, { id: toastId, status: "error", msg: e.message?.slice(0, 60) || "Transaction failed" }]);
+                      setTimeout(() => setToasts(prev => prev.filter(t => t.id !== toastId)), 5000);
                     }
-                    setBuyState("confirmed");
-                    setTimeout(() => setBuyState("idle"), 10000);
-                  } catch (e: any) {
-                    setBuyError(e.message?.slice(0, 60) || "Transaction failed");
-                    setBuyState("error");
-                    setTimeout(() => { setBuyState("idle"); setBuyError(null); }, 5000);
-                  }
-                }}
-                disabled={buyState === "sending" || buyState === "pending"}
-                className={`mt-3 relative overflow-hidden flex items-center justify-center gap-2 w-full py-2.5 rounded font-semibold text-sm transition-colors ${
-                  buyState === "confirmed"
-                    ? "bg-[#00ff88]/20 border border-[#00ff88]/50 text-[#00ff88]"
-                    : buyState === "reverted"
-                    ? "bg-red-500/20 border border-red-500/50 text-red-400"
-                    : buyState === "error"
-                    ? "bg-red-500/20 border border-red-500/50 text-red-400"
-                    : buyState === "sending"
-                    ? "bg-yellow-500/20 border border-yellow-500/50 text-yellow-400 cursor-wait"
-                    : buyState === "pending"
-                    ? "bg-yellow-500/20 border border-yellow-500/50 text-yellow-400 cursor-wait"
-                    : hasFee
-                    ? "bg-[#0d1117] border border-[#30363d] text-white"
-                    : "bg-[#00ff88]/10 border border-[#00ff88]/30 text-[#00ff88] hover:bg-[#00ff88]/20"
-                }`}
-              >
-                {/* Fee progress bar background — fills left→right as fee decays */}
-                {hasFee && buyState === "idle" && (
-                  <div
-                    className="absolute inset-0 transition-all duration-1000"
-                    style={{
-                      width: `${progress}%`,
-                      background: `linear-gradient(90deg, #ff4444, #ff8800, #ffcc00, #00ff88)`,
-                      opacity: 0.25,
-                    }}
-                  />
+                  }}
+                  disabled={buyState === "sending"}
+                  className={`mt-3 relative overflow-hidden flex items-center justify-center gap-2 w-full py-2.5 rounded font-semibold text-sm transition-colors ${
+                    buyState === "sending"
+                      ? "bg-yellow-500/20 border border-yellow-500/50 text-yellow-400 cursor-wait"
+                      : hasFee
+                      ? "bg-[#0d1117] border border-[#30363d] text-white"
+                      : "bg-[#00ff88]/10 border border-[#00ff88]/30 text-[#00ff88] hover:bg-[#00ff88]/20"
+                  }`}
+                >
+                  {/* Fee progress bar background — fills left→right as fee decays */}
+                  {hasFee && buyState === "idle" && (
+                    <div
+                      className="absolute inset-0 transition-all duration-1000"
+                      style={{
+                        width: `${progress}%`,
+                        background: `linear-gradient(90deg, #ff4444, #ff8800, #ffcc00, #00ff88)`,
+                        opacity: 0.25,
+                      }}
+                    />
+                  )}
+                  <span className="relative z-10">
+                    {buyState === "sending" ? "SENDING..." : (hasFee
+                      ? <>BUY {buyAmount} ETH <span style={{ color: feeColor }}>({feePercent}% fee)</span> <span className="text-gray-400">{feeRemaining}s</span></>
+                      : `BUY ${buyAmount} ETH`)}
+                  </span>
+                </button>
+                {/* Toast notifications */}
+                {toasts.length > 0 && (
+                  <div className="mt-2 flex flex-col gap-1">
+                    {toasts.map(t => (
+                      <div
+                        key={t.id}
+                        className={`flex items-center justify-between px-3 py-1.5 rounded text-xs font-mono ${
+                          t.status === "confirmed" ? "bg-[#00ff88]/15 text-[#00ff88]"
+                          : t.status === "reverted" ? "bg-red-500/15 text-red-400"
+                          : t.status === "error" ? "bg-red-500/15 text-red-400"
+                          : "bg-yellow-500/15 text-yellow-400"
+                        }`}
+                      >
+                        <span>
+                          {t.status === "pending" && "PENDING..."}
+                          {t.status === "confirmed" && "CONFIRMED"}
+                          {t.status === "reverted" && "REVERTED"}
+                          {t.status === "error" && `FAILED: ${t.msg}`}
+                        </span>
+                        {t.hash && (
+                          <a href={`https://basescan.org/tx/${t.hash}`} target="_blank" rel="noopener noreferrer" className="ml-2 underline opacity-70 hover:opacity-100">
+                            tx &rarr;
+                          </a>
+                        )}
+                        <button onClick={() => setToasts(prev => prev.filter(x => x.id !== t.id))} className="ml-2 opacity-50 hover:opacity-100">&times;</button>
+                      </div>
+                    ))}
+                  </div>
                 )}
-                <span className="relative z-10">
-                  {buyState === "sending" && "SENDING..."}
-                  {buyState === "pending" && txHash && (
-                    <a href={`https://basescan.org/tx/${txHash}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
-                      PENDING... View tx &rarr;
-                    </a>
-                  )}
-                  {buyState === "confirmed" && txHash && (
-                    <a href={`https://basescan.org/tx/${txHash}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
-                      CONFIRMED! View tx &rarr;
-                    </a>
-                  )}
-                  {buyState === "reverted" && txHash && (
-                    <a href={`https://basescan.org/tx/${txHash}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
-                      REVERTED! View tx &rarr;
-                    </a>
-                  )}
-                  {buyState === "error" && `FAILED: ${buyError}`}
-                  {buyState === "idle" && (hasFee
-                    ? <>BUY {buyAmount} ETH <span style={{ color: feeColor }}>({feePercent}% fee)</span> <span className="text-gray-400">{feeRemaining}s</span></>
-                    : `BUY ${buyAmount} ETH`)}
-                </span>
-              </button>
+              </>
             );
           })()
         ) : (

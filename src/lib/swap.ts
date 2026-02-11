@@ -3,8 +3,10 @@ import { ethers } from 'ethers';
 export const UNIVERSAL_ROUTER = '0x6fF5693b99212Da76ad316178A184AB56D299b43';
 export const WETH = '0x4200000000000000000000000000000000000006';
 export const CLANKER_HOOK = '0x3e342a06f9592459D75721d6956B570F02eF2Dc0';
+const BANKR_V2_HOOK = '0xbb7784a4d481184283ed89619a3e3ed143e1adc0';
 const CLANKER_AI_HOOK = '0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC';
 const BANKR_FEE = 12000;
+const BANKR_V2_FEE = 8388608;   // 0x800000 — dynamic fee (new Bankr hook, Feb 2025)
 const CLANKER_AI_FEE = 8388608; // 0x800000 — dynamic fee (hook-controlled)
 const TICK_SPACING = 200;
 const BASE_CHAIN_ID = 8453;
@@ -62,8 +64,8 @@ function encodeV4Swap(tokenAddress: string, amountInWei: bigint, factoryType: 'b
   const zeroForOne = currency0 === weth;
 
   // Pick pool params based on factory type
-  const hook = factoryType === 'clanker' ? CLANKER_AI_HOOK : CLANKER_HOOK;
-  const fee = factoryType === 'clanker' ? CLANKER_AI_FEE : BANKR_FEE;
+  const hook = factoryType === 'clanker' ? CLANKER_AI_HOOK : BANKR_V2_HOOK;
+  const fee = factoryType === 'clanker' ? CLANKER_AI_FEE : BANKR_V2_FEE;
 
   const ADDRESS_THIS = '0x0000000000000000000000000000000000000002';
   const CONTRACT_BALANCE = 1n << 255n;

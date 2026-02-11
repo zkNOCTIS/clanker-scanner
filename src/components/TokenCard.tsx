@@ -38,13 +38,14 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
     return () => clearInterval(interval);
   }, []);
 
-  // Fee countdown for Clanker AI — Sniper Auction V2 (quadratic decay)
-  // fee = endingFee + feeRange * (timeRemaining / timeToDecay)²
-  // On-chain: 66.7% → 4.2% over 15s (auction), then 1% base LP fee
-  const FEE_DURATION = 15;
+  // Fee countdown — quadratic decay: fee = endFee + (startFee - endFee) * (timeRemaining / duration)²
+  // Clanker: 66.7% → 4.2% over 15s | Bankr v2: 80% → 1.2% over 10s
   const isClanker = token.factory_type === "clanker";
+  const FEE_DURATION = isClanker ? 15 : 10;
+  const FEE_START = isClanker ? 66.7 : 80;
+  const FEE_END = isClanker ? 4.2 : 1.2;
   const secondsSinceDeploy = Math.floor((Date.now() - new Date(token.created_at).getTime()) / 1000);
-  const feeRemaining = isClanker ? Math.max(0, FEE_DURATION - secondsSinceDeploy) : 0;
+  const feeRemaining = Math.max(0, FEE_DURATION - secondsSinceDeploy);
   const hasFee = feeRemaining > 0;
 
 
@@ -240,7 +241,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
         {/* Buy button */}
         {walletKey ? (
           (() => {
-            const feePercent = hasFee ? Math.round(4.2 + 62.5 * Math.pow(feeRemaining / FEE_DURATION, 2)) : 0;
+            const feePercent = hasFee ? Math.round(FEE_END + (FEE_START - FEE_END) * Math.pow(feeRemaining / FEE_DURATION, 2)) : 0;
             const feeColor = feePercent > 40 ? "#ff4444" : feePercent > 20 ? "#ff8800" : feePercent > 10 ? "#ffcc00" : "#00ff88";
             const progress = hasFee ? Math.min(100, (secondsSinceDeploy / FEE_DURATION) * 100) : 100;
 

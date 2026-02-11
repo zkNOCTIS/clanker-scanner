@@ -425,7 +425,7 @@ function HomeContent() {
                       onClick={() => {
                         document.getElementById(`token-${token.contract_address}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
                       }}
-                      className={`w-full px-3 py-2 flex items-center justify-between hover:brightness-125 transition-colors text-left ${token.recommended && !token.duplicate_recommendation ? "bg-[#a855f7]/10 border-l-2 border-[#a855f7]" : token.factory_type === "clanker" ? "bg-[#f97316]/10 border-l-2 border-[#f97316]/50" : "bg-[#3b82f6]/10 border-l-2 border-[#3b82f6]/50"}`}
+                      className={`w-full px-3 py-2 flex items-center justify-between hover:brightness-125 transition-colors text-left border-l-2 ${token.recommended && !token.duplicate_recommendation ? "border-[#a855f7]" : token.factory_type === "clanker" ? "border-[#f97316]/50" : "border-[#3b82f6]/50"} ${token.factory_type === "clanker" ? "bg-[#f97316]/10" : "bg-[#3b82f6]/10"}`}
                     >
                       <div className="min-w-0">
                         <div className={`font-mono text-sm truncate ${token.recommended && !token.duplicate_recommendation ? "text-[#a855f7]" : "text-white"}`}>${token.symbol}</div>

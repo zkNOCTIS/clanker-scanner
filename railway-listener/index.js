@@ -207,8 +207,10 @@ async function processClankerAiTx(tx, receipt, t0, blockTimestamp) {
       return;
     }
 
-    // Construct tweet URL from messageId (numeric tweet ID)
-    const tweetUrl = messageId ? `https://x.com/i/status/${messageId}` : null;
+    // messageId can be numeric tweet ID or full URL — normalize to URL
+    const tweetUrl = messageId
+      ? (messageId.startsWith('http') ? messageId : `https://x.com/i/status/${messageId}`)
+      : null;
     if (!tweetUrl) {
       console.log(`⚠️ Clanker AI: No messageId for ${symbol}. Skipping.`);
       return;

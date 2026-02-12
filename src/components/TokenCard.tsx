@@ -3,10 +3,6 @@
 import { useState, useEffect } from "react";
 import { ClankerToken, getTwitterUsername, getTweetId, getTweetUrl, getCastUrl } from "@/types";
 import { TweetEmbed } from "./TweetEmbed";
-import { executeBuy } from "@/lib/swap";
-
-// Static flight time offset — 3s measured from 3 real test buys (click→on-chain)
-const FLIGHT_TIME = 3;
 
 function formatTimeAgo(dateStr: string): string {
   const now = Date.now();
@@ -23,11 +19,9 @@ function formatTimeAgo(dateStr: string): string {
 }
 
 
-export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = false, walletKey = null, buyAmount = "0.005", mcap = null }: { token: ClankerToken; isLatest?: boolean; onTweetDeleted?: () => void; shouldFetchStats?: boolean; walletKey?: string | null; buyAmount?: string; mcap?: number | null }) {
+export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = false, mcap = null }: { token: ClankerToken; isLatest?: boolean; onTweetDeleted?: () => void; shouldFetchStats?: boolean; mcap?: number | null }) {
   const [copied, setCopied] = useState(false);
   const [, setTick] = useState(0);
-  const [buyState, setBuyState] = useState<"idle" | "sending">("idle");
-  const [toasts, setToasts] = useState<{ id: number; status: "pending" | "confirmed" | "reverted" | "error"; hash?: string; msg?: string }[]>([]);
   const [twitterStats, setTwitterStats] = useState<{
     replied_to_username: string;
     replied_to_followers: number;
@@ -40,15 +34,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
     return () => clearInterval(interval);
   }, []);
 
-  // Fee countdown — Clanker: quadratic, Bankr v2: LINEAR
-  // Clanker: 66.7% → 4.2% over 15s (quadratic) | Bankr v2: 80% → 1.2% over 10s (linear)
   const isClanker = token.factory_type === "clanker";
-  const FEE_DURATION = isClanker ? 15 : 10;
-  const FEE_START = isClanker ? 66.7 : 80;
-  const FEE_END = isClanker ? 4.2 : 1.2;
-  const secondsSinceDeploy = Math.floor((Date.now() - new Date(token.created_at).getTime()) / 1000) + FLIGHT_TIME;
-  const feeRemaining = Math.max(0, FEE_DURATION - secondsSinceDeploy);
-  const hasFee = feeRemaining > 0;
 
 
   const tweetUrl = getTweetUrl(token);
@@ -240,146 +226,52 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
           </div>
         )}
 
-        {/* Buy button + toasts */}
-        {walletKey ? (
-          (() => {
-            const feePercent = hasFee ? Math.round(FEE_END + (FEE_START - FEE_END) * (isClanker ? Math.pow(feeRemaining / FEE_DURATION, 2) : feeRemaining / FEE_DURATION)) : 0;
-            const feeColor = feePercent > 40 ? "#ff4444" : feePercent > 20 ? "#ff8800" : feePercent > 10 ? "#ffcc00" : "#00ff88";
-            const progress = hasFee ? Math.min(100, (secondsSinceDeploy / FEE_DURATION) * 100) : 100;
+        {/* BasedBot quick-buy link with fee display */}
+        {(() => {
+          const BOT_FLIGHT = 2; // BasedBot lands ~2s after click
+          const FEE_DURATION = isClanker ? 15 : 10;
+          const FEE_START = isClanker ? 66.7 : 80;
+          const FEE_END = isClanker ? 4.2 : 1.2;
+          const elapsed = (Date.now() - new Date(token.created_at).getTime()) / 1000;
+          const landingTime = elapsed + BOT_FLIGHT;
+          const feeRemaining = Math.max(0, FEE_DURATION - landingTime);
+          const hasFee = feeRemaining > 0;
+          const feePercent = hasFee
+            ? Math.round(FEE_END + (FEE_START - FEE_END) * (isClanker ? Math.pow(feeRemaining / FEE_DURATION, 2) : feeRemaining / FEE_DURATION))
+            : 0;
+          const feeColor = feePercent > 40 ? "#ff4444" : feePercent > 20 ? "#ff8800" : feePercent > 10 ? "#ffcc00" : "#00ff88";
+          const countdown = Math.max(0, Math.ceil(FEE_DURATION - elapsed));
 
-            return (
-              <>
-                <button
-                  onClick={async () => {
-                    if (buyState === "sending") return;
-                    setBuyState("sending");
-                    try {
-                      const sendTime = Math.floor(Date.now() / 1000);
-                      const hash = await executeBuy(walletKey, token.contract_address, buyAmount, token.factory_type || "bankr");
-                      // Immediately back to idle so user can buy again
-                      setBuyState("idle");
-                      const toastId = Date.now();
-                      setToasts(prev => [...prev, { id: toastId, status: "pending", hash }]);
-                      // Poll receipt in background, measure flight time
-                      (async () => {
-                        const rpc = "https://mainnet.base.org";
-                        for (let i = 0; i < 30; i++) {
-                          await new Promise(r => setTimeout(r, 1000));
-                          try {
-                            const res = await fetch(rpc, {
-                              method: "POST", headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getTransactionReceipt", params: [hash] }),
-                            });
-                            const json = await res.json();
-                            if (json.result) {
-                              const success = json.result.status === "0x1";
-                              // Measure flight time from block timestamp
-                              let flightMsg = "";
-                              try {
-                                const blockRes = await fetch(rpc, {
-                                  method: "POST", headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getBlockByNumber", params: [json.result.blockNumber, false] }),
-                                });
-                                const blockJson = await blockRes.json();
-                                if (blockJson.result) {
-                                  const blockTs = parseInt(blockJson.result.timestamp, 16);
-                                  const flight = blockTs - sendTime;
-                                  if (flight > 0 && flight < 30) {
-                                    flightMsg = ` (${flight}s flight)`;
-                                  }
-                                }
-                              } catch {}
-                              setToasts(prev => prev.map(t => t.id === toastId ? { ...t, status: success ? "confirmed" : "reverted", msg: flightMsg } : t));
-                              setTimeout(() => setToasts(prev => prev.filter(t => t.id !== toastId)), 8000);
-                              return;
-                            }
-                          } catch {}
-                        }
-                        // Timeout — assume confirmed
-                        setToasts(prev => prev.map(t => t.id === toastId ? { ...t, status: "confirmed" } : t));
-                        setTimeout(() => setToasts(prev => prev.filter(t => t.id !== toastId)), 8000);
-                      })();
-                    } catch (e: any) {
-                      setBuyState("idle");
-                      const toastId = Date.now();
-                      setToasts(prev => [...prev, { id: toastId, status: "error", msg: e.message?.slice(0, 60) || "Transaction failed" }]);
-                      setTimeout(() => setToasts(prev => prev.filter(t => t.id !== toastId)), 5000);
-                    }
+          return (
+            <a
+              href={`tg://resolve?domain=based_vip_eu_bot&start=b_${token.contract_address}`}
+              className={`mt-2 relative overflow-hidden flex items-center justify-center gap-2 w-full py-2 rounded font-semibold text-sm transition-colors ${
+                hasFee
+                  ? "bg-[#0d1117] border border-[#30363d] text-white"
+                  : "bg-[#26A5E4]/10 border border-[#26A5E4]/30 text-[#26A5E4] hover:bg-[#26A5E4]/20"
+              }`}
+            >
+              {hasFee && (
+                <div
+                  className="absolute inset-0 transition-all duration-1000"
+                  style={{
+                    width: `${Math.min(100, (elapsed / FEE_DURATION) * 100)}%`,
+                    background: "linear-gradient(90deg, #ff4444, #ff8800, #ffcc00, #00ff88)",
+                    opacity: 0.25,
                   }}
-                  disabled={buyState === "sending"}
-                  className={`mt-3 relative overflow-hidden flex items-center justify-center gap-2 w-full py-2.5 rounded font-semibold text-sm transition-colors ${
-                    buyState === "sending"
-                      ? "bg-yellow-500/20 border border-yellow-500/50 text-yellow-400 cursor-wait"
-                      : hasFee
-                      ? "bg-[#0d1117] border border-[#30363d] text-white"
-                      : "bg-[#00ff88]/10 border border-[#00ff88]/30 text-[#00ff88] hover:bg-[#00ff88]/20"
-                  }`}
-                >
-                  {/* Fee progress bar background — fills left→right as fee decays */}
-                  {hasFee && buyState === "idle" && (
-                    <div
-                      className="absolute inset-0 transition-all duration-1000"
-                      style={{
-                        width: `${progress}%`,
-                        background: `linear-gradient(90deg, #ff4444, #ff8800, #ffcc00, #00ff88)`,
-                        opacity: 0.25,
-                      }}
-                    />
-                  )}
-                  <span className="relative z-10">
-                    {buyState === "sending" ? "SENDING..." : (hasFee
-                      ? <>BUY {buyAmount} ETH <span style={{ color: feeColor }}>({feePercent}% fee)</span> <span className="text-gray-400">{feeRemaining}s</span></>
-                      : `BUY ${buyAmount} ETH`)}
-                  </span>
-                </button>
-                {/* Toast notifications */}
-                {toasts.length > 0 && (
-                  <div className="mt-2 flex flex-col gap-1">
-                    {toasts.map(t => (
-                      <div
-                        key={t.id}
-                        className={`flex items-center justify-between px-3 py-1.5 rounded text-xs font-mono ${
-                          t.status === "confirmed" ? "bg-[#00ff88]/15 text-[#00ff88]"
-                          : t.status === "reverted" ? "bg-red-500/15 text-red-400"
-                          : t.status === "error" ? "bg-red-500/15 text-red-400"
-                          : "bg-yellow-500/15 text-yellow-400"
-                        }`}
-                      >
-                        <span>
-                          {t.status === "pending" && "PENDING..."}
-                          {t.status === "confirmed" && <>CONFIRMED{t.msg}</>}
-                          {t.status === "reverted" && "REVERTED"}
-                          {t.status === "error" && `FAILED: ${t.msg}`}
-                        </span>
-                        {t.hash && (
-                          <a href={`https://basescan.org/tx/${t.hash}`} target="_blank" rel="noopener noreferrer" className="ml-2 underline opacity-70 hover:opacity-100">
-                            tx &rarr;
-                          </a>
-                        )}
-                        <button onClick={() => setToasts(prev => prev.filter(x => x.id !== t.id))} className="ml-2 opacity-50 hover:opacity-100">&times;</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </>
-            );
-          })()
-        ) : (
-          <div className="mt-3 text-center text-[10px] text-gray-500 font-mono py-1.5">
-            Import wallet above to enable instant buy
-          </div>
-        )}
-
-        {/* BasedBot quick-buy link */}
-        <a
-          href={`tg://resolve?domain=based_vip_eu_bot&start=b_${token.contract_address}`}
-          className="mt-2 flex items-center justify-center gap-2 w-full py-2 rounded font-semibold text-sm bg-[#26A5E4]/10 border border-[#26A5E4]/30 text-[#26A5E4] hover:bg-[#26A5E4]/20 transition-colors"
-        >
-          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
-          </svg>
-          BasedBot
-        </a>
+                />
+              )}
+              <span className="relative z-10 flex items-center gap-2">
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+                </svg>
+                {hasFee
+                  ? <>BasedBot <span style={{ color: feeColor }}>({feePercent}% fee)</span> <span className="text-gray-400">{countdown}s</span></>
+                  : "BasedBot"}
+              </span>
+            </a>
+          );
+        })()}
 
         {/* Social Links - dedupe by URL */}
         {(() => {

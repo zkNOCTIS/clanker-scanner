@@ -22,7 +22,7 @@ function formatTimeAgo(dateStr: string): string {
 export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = false, mcap = null }: { token: ClankerToken; isLatest?: boolean; onTweetDeleted?: () => void; shouldFetchStats?: boolean; mcap?: number | null }) {
   const [copied, setCopied] = useState(false);
   const [, setTick] = useState(0);
-  const [autoBuyFired, setAutoBuyFired] = useState(false);
+  const [autoBuyFired, setAutoBuyFired] = useState(false); // just tracks that armed buy completed, doesn't block further clicks
   const [twitterStats, setTwitterStats] = useState<{
     replied_to_username: string;
     replied_to_followers: number;
@@ -55,6 +55,8 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
+      // Flash SENT for 2s then back to normal clickable
+      setTimeout(() => setAutoBuyFired(false), 2000);
     };
 
     if (remaining <= 0) { openLink(); return; }
@@ -304,7 +306,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
                 </svg>
                 {autoBuyArmed
                   ? <>ARMED — opening in {autobuyCountdown}s</>
-                  : autoBuyFired && isClanker
+                  : autoBuyFired
                     ? <>BasedBot <span className="text-[#00ff88]">SENT</span></>
                     : hasFee
                       ? <>BasedBot <span style={{ color: feeColor }}>({feePercent}% fee)</span> <span className="text-gray-400">{countdown}s</span></>

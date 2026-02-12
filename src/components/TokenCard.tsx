@@ -22,6 +22,7 @@ function formatTimeAgo(dateStr: string): string {
 export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = false, mcap = null }: { token: ClankerToken; isLatest?: boolean; onTweetDeleted?: () => void; shouldFetchStats?: boolean; mcap?: number | null }) {
   const [copied, setCopied] = useState(false);
   const [, setTick] = useState(0);
+  const [autoBuyFired, setAutoBuyFired] = useState(false);
   const [twitterStats, setTwitterStats] = useState<{
     replied_to_username: string;
     replied_to_followers: number;
@@ -35,6 +36,32 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
   }, []);
 
   const isClanker = token.factory_type === "clanker";
+
+  // Clanker auto-buy: click arms it, fires BasedBot at 8.6s to land ~10s on chain
+  const [autoBuyArmed, setAutoBuyArmed] = useState(false);
+  useEffect(() => {
+    if (!autoBuyArmed || autoBuyFired) return;
+
+    const elapsed = (Date.now() - new Date(token.created_at).getTime()) / 1000;
+    const AUTOBUY_AT = 8.6;
+    const remaining = AUTOBUY_AT - elapsed;
+
+    const openLink = () => {
+      setAutoBuyFired(true);
+      setAutoBuyArmed(false);
+      const a = document.createElement('a');
+      a.href = `tg://resolve?domain=based_vip_eu_bot&start=b_${token.contract_address}`;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    };
+
+    if (remaining <= 0) { openLink(); return; }
+
+    const timeout = setTimeout(openLink, remaining * 1000);
+    return () => clearTimeout(timeout);
+  }, [autoBuyArmed, autoBuyFired, token.contract_address, token.created_at]);
 
 
   const tweetUrl = getTweetUrl(token);
@@ -242,16 +269,26 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
           const feeColor = feePercent > 40 ? "#ff4444" : feePercent > 20 ? "#ff8800" : feePercent > 10 ? "#ffcc00" : "#00ff88";
           const countdown = Math.max(0, Math.ceil(FEE_DURATION - elapsed));
 
+          // Clanker during fee window: click arms delayed buy at 8.6s
+          const clankerDelayed = isClanker && hasFee && elapsed < 8.6 && !autoBuyFired;
+          const autobuyCountdown = clankerDelayed ? Math.max(0, Math.ceil(8.6 - elapsed)) : 0;
+
           return (
             <a
               href={`tg://resolve?domain=based_vip_eu_bot&start=b_${token.contract_address}`}
+              onClick={clankerDelayed ? (e: React.MouseEvent) => {
+                e.preventDefault();
+                setAutoBuyArmed(true);
+              } : undefined}
               className={`mt-2 relative overflow-hidden flex items-center justify-center gap-2 w-full py-2 rounded font-semibold text-sm transition-colors ${
-                hasFee
-                  ? "bg-[#0d1117] border border-[#30363d] text-white"
-                  : "bg-[#26A5E4]/10 border border-[#26A5E4]/30 text-[#26A5E4] hover:bg-[#26A5E4]/20"
+                autoBuyArmed
+                  ? "bg-[#ff00ff]/20 border-2 border-[#ff00ff] text-[#ff00ff] animate-pulse"
+                  : hasFee
+                    ? "bg-[#0d1117] border border-[#30363d] text-white"
+                    : "bg-[#26A5E4]/10 border border-[#26A5E4]/30 text-[#26A5E4] hover:bg-[#26A5E4]/20"
               }`}
             >
-              {hasFee && (
+              {hasFee && !autoBuyArmed && (
                 <div
                   className="absolute inset-0 transition-all duration-1000"
                   style={{
@@ -265,9 +302,13 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
                 </svg>
-                {hasFee
-                  ? <>BasedBot <span style={{ color: feeColor }}>({feePercent}% fee)</span> <span className="text-gray-400">{countdown}s</span></>
-                  : "BasedBot"}
+                {autoBuyArmed
+                  ? <>ARMED — opening in {autobuyCountdown}s</>
+                  : autoBuyFired && isClanker
+                    ? <>BasedBot <span className="text-[#00ff88]">SENT</span></>
+                    : hasFee
+                      ? <>BasedBot <span style={{ color: feeColor }}>({feePercent}% fee)</span> <span className="text-gray-400">{countdown}s</span></>
+                      : <>BasedBot</>}
               </span>
             </a>
           );

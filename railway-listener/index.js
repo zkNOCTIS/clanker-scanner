@@ -156,7 +156,7 @@ async function fetchIpfsMetadata(ipfsCid) {
 }
 
 // Process a Clanker AI factory tx — parse event logs directly (no IPFS needed)
-async function processClankerAiTx(tx, receipt, t0) {
+async function processClankerAiTx(tx, receipt, t0, blockTimestamp) {
   try {
     // Find the factory event log
     const factoryLog = receipt.logs.find(
@@ -214,14 +214,12 @@ async function processClankerAiTx(tx, receipt, t0) {
       return;
     }
 
-    const serverNow = new Date().toISOString();
-
     broadcastToken({
       contract_address: tokenAddress,
       name,
       symbol,
       tx_hash: tx.hash,
-      created_at: serverNow,
+      created_at: blockTimestamp,
       creator_address: tx.from,
       image_url: null,
       description: null,
@@ -262,6 +260,9 @@ async function startListener() {
         if (!block || !block.transactions) return;
         const tBlock = performance.now();
 
+        // Use actual block timestamp for created_at (not server time which adds pipeline delay)
+        const blockTimestamp = new Date(parseInt(block.timestamp, 16) * 1000).toISOString();
+
         // Find Bankr matches (calldata) and Clanker AI matches (tx.to)
         const bankrMatches = [];
         const clankerAiTxs = [];
@@ -290,7 +291,7 @@ async function startListener() {
         for (const tx of clankerAiTxs) {
           allPromises.push(
             provider.send('eth_getTransactionReceipt', [tx.hash])
-              .then(receipt => processClankerAiTx(tx, receipt, t0))
+              .then(receipt => processClankerAiTx(tx, receipt, t0, blockTimestamp))
               .catch(e => console.error('[Clanker AI] Receipt fetch failed:', e.message))
           );
         }
@@ -319,7 +320,6 @@ async function startListener() {
             console.log(`Tx:     https://basescan.org/tx/${tx.hash}`);
             console.log(`⏱️  Receipt+IPFS parallel: ${(tDone - tFetch).toFixed(0)}ms | Total from block: ${(tDone - t0).toFixed(0)}ms`);
 
-            const serverNow = new Date().toISOString();
 
             if (ipfsResult) {
               const { data: ipfsData, gatewayBase } = ipfsResult;
@@ -342,7 +342,7 @@ async function startListener() {
                 symbol: ipfsData.symbol || "???",
                 ipfs_cid: ipfsCid,
                 tx_hash: tx.hash,
-                created_at: serverNow,
+                created_at: blockTimestamp,
                 creator_address: tx.from,
                 image_url: imageUrl,
                 description: ipfsData.description || null,
@@ -363,7 +363,7 @@ async function startListener() {
                 symbol: "...",
                 ipfs_cid: ipfsCid,
                 tx_hash: tx.hash,
-                created_at: serverNow,
+                created_at: blockTimestamp,
                 creator_address: tx.from,
                 image_url: null,
                 description: null,

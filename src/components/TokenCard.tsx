@@ -228,13 +228,11 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
 
         {/* BasedBot quick-buy link with fee display */}
         {(() => {
-          const BOT_FLIGHT = 2; // BasedBot lands ~2s after click
           const FEE_DURATION = isClanker ? 15 : 10;
           const FEE_START = isClanker ? 66.7 : 80;
           const FEE_END = isClanker ? 4.2 : 1.2;
           const elapsed = (Date.now() - new Date(token.created_at).getTime()) / 1000;
-          const landingTime = elapsed + BOT_FLIGHT;
-          const feeRemaining = Math.max(0, FEE_DURATION - landingTime);
+          const feeRemaining = Math.max(0, FEE_DURATION - elapsed);
           const hasFee = feeRemaining > 0;
           const feePercent = hasFee
             ? Math.round(FEE_END + (FEE_START - FEE_END) * (isClanker ? Math.pow(feeRemaining / FEE_DURATION, 2) : feeRemaining / FEE_DURATION))

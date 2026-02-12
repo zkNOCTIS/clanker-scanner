@@ -269,7 +269,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
             ? Math.round(FEE_END + (FEE_START - FEE_END) * (isClanker ? Math.pow(feeRemaining / FEE_DURATION, 2) : feeRemaining / FEE_DURATION))
             : 0;
           const feeColor = feePercent > 40 ? "#ff4444" : feePercent > 20 ? "#ff8800" : feePercent > 10 ? "#ffcc00" : "#00ff88";
-          const countdown = Math.max(0, Math.ceil(FEE_DURATION - elapsed));
+          const landingSecond = Math.min(FEE_DURATION, Math.ceil(elapsed + BOT_FLIGHT));
 
           // Clanker during fee window: click arms delayed buy at 8.6s
           const clankerDelayed = isClanker && hasFee && elapsed < 8.6 && !autoBuyFired;
@@ -309,7 +309,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
                   : autoBuyFired
                     ? <>BasedBot <span className="text-[#00ff88]">SENT</span></>
                     : hasFee
-                      ? <>BasedBot <span style={{ color: feeColor }}>({feePercent}% fee)</span> <span className="text-gray-400">{countdown}s</span></>
+                      ? <>BasedBot <span style={{ color: feeColor }}>({feePercent}% fee)</span> <span className="text-gray-400">@{landingSecond}s</span></>
                       : <>BasedBot</>}
               </span>
             </a>

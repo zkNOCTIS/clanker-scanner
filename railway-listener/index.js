@@ -253,7 +253,7 @@ async function startListener() {
       const t0 = performance.now();
       try {
         const block = await provider.send('eth_getBlockByNumber', [
-          ethers.toBeHex(blockNumber),
+          ethers.toQuantity(blockNumber),
           true
         ]);
 

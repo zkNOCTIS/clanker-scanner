@@ -294,7 +294,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
                 <div
                   className="absolute inset-0 transition-all duration-1000"
                   style={{
-                    width: `${Math.min(100, (elapsed / FEE_DURATION) * 100)}%`,
+                    width: `${Math.min(100, (landingTime / FEE_DURATION) * 100)}%`,
                     background: "linear-gradient(90deg, #ff4444, #ff8800, #ffcc00, #00ff88)",
                     opacity: 0.25,
                   }}

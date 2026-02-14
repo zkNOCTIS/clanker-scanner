@@ -126,7 +126,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
   };
 
   return (
-    <div className={`rounded-sm overflow-hidden ${token.recommended && !token.duplicate_recommendation ? "border-2 border-[#a855f7]" : "border border-[#30363d]"} ${isClanker ? "bg-[#1c1408]" : "bg-[#0c1222]"}`}>
+    <div className={`rounded-sm overflow-hidden border border-[#30363d] ${isClanker ? "bg-[#1c1408]" : "bg-[#0c1222]"}`}>
       {/* Header */}
       <div className="p-4">
         <div className="flex items-start justify-between gap-4">
@@ -136,19 +136,6 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
               {isLatest && (
                 <span className="px-2 py-0.5 text-[10px] font-mono font-bold bg-[#00d9ff] text-black rounded-sm">
                   LATEST
-                </span>
-              )}
-              {token.recommended && !token.duplicate_recommendation && (
-                <span className="px-1.5 py-0.5 text-[10px] font-mono font-bold bg-[#ef4444] text-white rounded-full">
-                  AI recommended
-                </span>
-              )}
-              {token.duplicate_recommendation && (
-                <span className="px-2 py-0.5 text-[10px] font-mono font-bold bg-[#f97316] text-black rounded-sm flex items-center gap-1">
-                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                  </svg>
-                  COPYCAT
                 </span>
               )}
               <span className="text-gray-500 font-mono text-xs">
@@ -238,22 +225,6 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
             </a>
           )}
         </div>
-
-        {/* Fee recommendation info */}
-        {token.recommended && token.recommended_for && !token.duplicate_recommendation && (
-          <div className="mt-2 px-3 py-2 bg-[#a855f7]/10 border border-[#a855f7]/30 rounded">
-            <span className="font-mono text-xs text-[#a855f7]">
-              Fees directed to @{token.recommended_for} (thread owner)
-            </span>
-          </div>
-        )}
-        {token.duplicate_recommendation && token.recommended_for && (
-          <div className="mt-2 px-3 py-2 bg-[#a855f7]/10 border border-[#a855f7]/30 rounded">
-            <span className="font-mono text-xs text-[#f97316]">
-              Copycat — another token already deployed from this tweet for @{token.recommended_for}
-            </span>
-          </div>
-        )}
 
         {/* BasedBot quick-buy link with fee display */}
         {(() => {

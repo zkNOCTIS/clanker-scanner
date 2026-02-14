@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState, useRef } from "react";
 import { useSearchParams } from "next/navigation";
-import { ClankerToken, hasRealSocialContext, getTweetUrl, getTweetId, detectFeeRecommendation } from "@/types";
+import { ClankerToken, hasRealSocialContext } from "@/types";
 import { TokenCard } from "@/components/TokenCard";
 
 export default function Home() {
@@ -260,52 +260,6 @@ function HomeContent() {
     });
   }, [tokens]);
 
-  // FxTwitter fee recommendation check (async, non-blocking)
-  const checkedRef = useRef<Set<string>>(new Set());
-  const recommendedTweetsRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    if (tokens.length === 0) return;
-
-    const unchecked = tokens.filter(
-      (t) => !checkedRef.current.has(t.contract_address) && getTweetUrl(t)
-    );
-    if (unchecked.length === 0) return;
-
-    const batch = unchecked.slice(0, 3);
-    batch.forEach((token) => {
-      checkedRef.current.add(token.contract_address);
-      const tweetUrl = getTweetUrl(token)!;
-
-      fetch(`/api/tweet-info?url=${encodeURIComponent(tweetUrl)}`)
-        .then((res) => (res.ok ? res.json() : null))
-        .then((data) => {
-          if (!data?.tweet_text || !data?.reply_to_username) return;
-          const matchedUser = detectFeeRecommendation(data.tweet_text, data.reply_to_username);
-          if (matchedUser) {
-            const tweetId = getTweetId(tweetUrl);
-            // Synchronous ref check beats any race condition between concurrent fetches
-            const isDuplicate = tweetId ? recommendedTweetsRef.current.has(tweetId) : false;
-            if (!isDuplicate && tweetId) {
-              recommendedTweetsRef.current.add(tweetId);
-            }
-            setTokens((prev) =>
-              prev.map((t) =>
-                t.contract_address === token.contract_address
-                  ? {
-                    ...t,
-                    recommended: true,
-                    recommended_for: matchedUser,
-                    duplicate_recommendation: isDuplicate,
-                  }
-                  : t
-              )
-            );
-          }
-        })
-        .catch(() => { });
-    });
-  }, [tokens]);
-
   // Only show tokens that have been validated (IPFS fetched + valid tweet URL)
   const visibleTokens = tokens.filter(t => t.name !== "Loading...");
 
@@ -402,10 +356,10 @@ function HomeContent() {
                       onClick={() => {
                         document.getElementById(`token-${token.contract_address}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
                       }}
-                      className={`w-full px-3 py-2 flex items-center justify-between hover:brightness-125 transition-colors text-left border-l-2 ${token.recommended && !token.duplicate_recommendation ? "border-[#a855f7]" : token.factory_type === "clanker" ? "border-[#f97316]/50" : "border-[#3b82f6]/50"} ${token.factory_type === "clanker" ? "bg-[#f97316]/10" : "bg-[#3b82f6]/10"}`}
+                      className={`w-full px-3 py-2 flex items-center justify-between hover:brightness-125 transition-colors text-left border-l-2 ${token.factory_type === "clanker" ? "border-[#f97316]/50" : "border-[#3b82f6]/50"} ${token.factory_type === "clanker" ? "bg-[#f97316]/10" : "bg-[#3b82f6]/10"}`}
                     >
                       <div className="min-w-0">
-                        <div className={`font-mono text-sm truncate ${token.recommended && !token.duplicate_recommendation ? "text-[#a855f7]" : "text-white"}`}>${token.symbol}</div>
+                        <div className="font-mono text-sm truncate text-white">${token.symbol}</div>
                         <div className="font-mono text-xs text-gray-500">{timeStr} ago</div>
                       </div>
                       <span className={`font-mono text-xs ${mcaps[token.contract_address.toLowerCase()] >= 30000 ? 'text-[#00ff88]' : 'text-yellow-400'

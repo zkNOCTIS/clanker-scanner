@@ -59,9 +59,6 @@ export interface ClankerToken {
     verified?: boolean;
     champagne?: boolean;
   };
-  recommended?: boolean;
-  recommended_for?: string;
-  duplicate_recommendation?: boolean;
 }
 
 export function getTwitterUsername(url: string): string | null {
@@ -201,46 +198,3 @@ export function hasRealSocialContext(token: ClankerToken): boolean {
   return false;
 }
 
-export function detectFeeRecommendation(
-  tweetText: string,
-  replyToUsername: string | null
-): string | null {
-  if (!tweetText || !replyToUsername) return null;
-
-  const text = tweetText.toLowerCase();
-  const replyTo = replyToUsername.toLowerCase().replace(/^@/, "");
-
-  // Match patterns like "fees to @X", "give fees to @X", "redirect fees and admin to X"
-  const feePatterns = [
-    /(?:give|send|set|direct|redirect)\s+(?:the\s+)?(?:all\s+)?fees?\s+too?\s+@?(\w+)/gi,
-    /(?:all\s+)?fees?\s+(?:and\s+\w+\s+)?too?\s+@?(\w+)/gi,
-    /(?:give|send|set|direct|redirect)\s+(?:the\s+)?(?:all\s+)?fees?\s+(?:and\s+\w+\s+)?(?:too?\s+)?(?:for\s+)?@?(\w+)/gi,
-    /@(\w+)\s+(?:gets?\s+(?:the\s+)?fees?|receives?\s+(?:the\s+)?fees?)/gi,
-    // "fee send all too @X" — fee word before verb
-    /fees?\s+(?:give|send|set|direct|redirect)\s+(?:all\s+)?too?\s+@?(\w+)/gi,
-  ];
-
-  for (const pattern of feePatterns) {
-    pattern.lastIndex = 0;
-    let match;
-    while ((match = pattern.exec(text)) !== null) {
-      if (match[1].toLowerCase() === replyTo) {
-        // Check for negation before the match (e.g. "don't direct fees")
-        const before = text.slice(Math.max(0, match.index - 50), match.index);
-        if (/(?:don'?t|do\s+not)\s/.test(before)) return null;
-        // Block partial fee splits (half, some, partial, %) — only all fees = purple
-        if (/(?:half|some|partial)\s+(?:of\s+)?(?:the\s+)?fees?/i.test(text)) return null;
-        if (/\d+\s*%\s*(?:of\s+)?(?:the\s+)?fees?/i.test(text)) return null;
-        // Block if tweet has filler wall — 5+ lines that are just dashes/dots/empty
-        const fillerLines = text.split("\n").filter(l => /^[\s.\-\u2022\u2013\u2014|,_]*$/.test(l)).length;
-        if (fillerLines >= 5) return null;
-        // Check entire tweet for cancel/retract phrases (hidden after dots/newlines)
-        const negWords = /cancel|jk|just\s+kidding|nevermind|nvm|sike|psych|scratch\s+that|actually\s+no|wait\s+no|not\s+really|ignore/i;
-        if (negWords.test(text)) return null;
-        return replyToUsername.replace(/^@/, "");
-      }
-    }
-  }
-
-  return null;
-}

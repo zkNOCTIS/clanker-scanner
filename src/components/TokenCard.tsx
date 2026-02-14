@@ -19,7 +19,7 @@ function formatTimeAgo(dateStr: string): string {
 }
 
 
-export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = false, mcap = null }: { token: ClankerToken; isLatest?: boolean; onTweetDeleted?: () => void; shouldFetchStats?: boolean; mcap?: number | null }) {
+export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = false, mcap = null, botDomain = "based_vip_eu_bot" }: { token: ClankerToken; isLatest?: boolean; onTweetDeleted?: () => void; shouldFetchStats?: boolean; mcap?: number | null; botDomain?: string }) {
   const [copied, setCopied] = useState(false);
   const [, setTick] = useState(0);
   const [autoBuyFired, setAutoBuyFired] = useState(false); // just tracks that armed buy completed, doesn't block further clicks
@@ -50,7 +50,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
       setAutoBuyFired(true);
       setAutoBuyArmed(false);
       const a = document.createElement('a');
-      a.href = `tg://resolve?domain=based_vip_eu_bot&start=b_${token.contract_address}`;
+      a.href = `tg://resolve?domain=${botDomain}&start=b_${token.contract_address}`;
       a.style.display = 'none';
       document.body.appendChild(a);
       a.click();
@@ -277,7 +277,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
 
           return (
             <a
-              href={`tg://resolve?domain=based_vip_eu_bot&start=b_${token.contract_address}`}
+              href={`tg://resolve?domain=${botDomain}&start=b_${token.contract_address}`}
               onClick={clankerDelayed ? (e: React.MouseEvent) => {
                 e.preventDefault();
                 setAutoBuyArmed(true);

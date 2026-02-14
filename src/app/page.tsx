@@ -25,6 +25,7 @@ function HomeContent() {
   const [, setTick] = useState(0);
   const [searchCA, setSearchCA] = useState("");
   const searchParams = useSearchParams();
+  const botDomain = searchParams.get("bot") || "based_vip_eu_bot";
 
   // Remove token when tweet is detected as deleted
   const handleTweetDeleted = (contractAddress: string) => {
@@ -376,6 +377,7 @@ function HomeContent() {
                       onTweetDeleted={() => handleTweetDeleted(token.contract_address)}
                       shouldFetchStats={newTokensRef.current.has(token.contract_address)}
                       mcap={mcaps[token.contract_address.toLowerCase()] ?? null}
+                      botDomain={botDomain}
                     />
                   </div>
                 ))}

@@ -159,6 +159,7 @@ const BLOCKED_FC_USERNAMES: string[] = [
   "maspin.eth",
   "primenode.eth",
   "amzgaming",
+  "thejack",
 ];
 
 export function hasRealSocialContext(token: ClankerToken): boolean {

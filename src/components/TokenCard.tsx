@@ -384,33 +384,72 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
         </div>
       )}
 
-      {/* Farcaster link - always show for FC tokens with cast hash */}
+      {/* Farcaster stats + link */}
       {castUrl && (
         <div className="border-t border-[#30363d] px-4 py-3">
-          <div className="flex items-center justify-between gap-4">
-            <a
-              href={castUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 text-purple-400 font-mono text-sm hover:bg-purple-400/10 px-2 py-1 rounded transition-colors"
-            >
-              <span className="text-purple-500">FC</span>
-              View Cast on Warpcast →
-            </a>
-            {token.social_context?.xUsername && (
-              <a
-                href={`https://x.com/${token.social_context.xUsername}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-[#00d9ff] font-mono text-sm hover:bg-[#00d9ff]/10 px-2 py-1 rounded transition-colors"
-              >
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-                </svg>
-                @{token.social_context.xUsername}
-              </a>
-            )}
-          </div>
+          {/* Author profile from Neynar */}
+          {token.farcaster_stats && (
+            <div className="mb-3 p-3 rounded bg-purple-500/10 border border-purple-500/30">
+              <div className="flex items-start gap-3">
+                {token.farcaster_stats.author_pfp && (
+                  <img
+                    src={token.farcaster_stats.author_pfp}
+                    alt=""
+                    className="w-10 h-10 rounded-full flex-shrink-0"
+                  />
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-sm font-bold text-purple-300">
+                      @{token.farcaster_stats.author_username}
+                    </span>
+                    {token.farcaster_stats.power_badge && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/30 text-purple-300 font-mono">POWER</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3 mt-1">
+                    <span className={`font-mono text-xs font-bold ${token.farcaster_stats.follower_count >= 1000 ? 'text-[#00ff88]' : 'text-gray-400'}`}>
+                      {token.farcaster_stats.follower_count >= 1000
+                        ? (token.farcaster_stats.follower_count / 1000).toFixed(1) + 'K'
+                        : token.farcaster_stats.follower_count} followers
+                    </span>
+                    <span className="font-mono text-xs text-gray-500">
+                      {token.farcaster_stats.following_count} following
+                    </span>
+                  </div>
+                  {token.farcaster_stats.bio && (
+                    <p className="font-mono text-xs text-gray-400 mt-1 line-clamp-2">{token.farcaster_stats.bio}</p>
+                  )}
+                  {token.farcaster_stats.x_username && (
+                    <a
+                      href={`https://x.com/${token.farcaster_stats.x_username}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 mt-1.5 text-[#00d9ff] font-mono text-xs hover:underline"
+                    >
+                      <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+                      </svg>
+                      @{token.farcaster_stats.x_username}
+                    </a>
+                  )}
+                </div>
+              </div>
+              {/* Cast text */}
+              {token.farcaster_stats.cast_text && (
+                <p className="font-mono text-xs text-gray-300 mt-2 pl-[52px] line-clamp-3">{token.farcaster_stats.cast_text}</p>
+              )}
+            </div>
+          )}
+          <a
+            href={castUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 text-purple-400 font-mono text-sm hover:bg-purple-400/10 px-2 py-1 rounded transition-colors"
+          >
+            <span className="text-purple-500">FC</span>
+            View Cast on Warpcast →
+          </a>
         </div>
       )}
 

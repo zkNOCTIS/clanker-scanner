@@ -94,6 +94,42 @@ const CLANKER_AI_FACTORY = '0xe85a59c628f7d27878aceb4bf3b35733630083a9'; // lowe
 const CLANKER_AI_EVENT_TOPIC = '0x9299d1d1a88d8e1abdc591ae7a167a6bc63a8f17d695804e9091ee33aa89fb67';
 const abiCoder = new ethers.AbiCoder();
 
+// ---- Neynar (Farcaster API) ----
+const NEYNAR_API_KEY = process.env.NEYNAR_API_KEY || '4B216F81-7DB6-4299-976B-C732EC756720';
+
+async function lookupFarcasterCast(castHash) {
+  try {
+    const identifier = castHash.startsWith('0x') ? castHash : `0x${castHash}`;
+    const res = await fetch(
+      `https://api.neynar.com/v2/farcaster/cast?identifier=${identifier}&type=hash`,
+      { headers: { 'api_key': NEYNAR_API_KEY }, signal: AbortSignal.timeout(5000) }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const cast = data.cast;
+    if (!cast) return null;
+
+    const author = cast.author || {};
+    const xAccount = (author.verified_accounts || []).find(a => a.platform === 'x');
+
+    return {
+      cast_text: cast.text || '',
+      author_username: author.username || '',
+      author_display_name: author.display_name || '',
+      author_pfp: author.pfp_url || null,
+      author_fid: author.fid || null,
+      follower_count: author.follower_count || 0,
+      following_count: author.following_count || 0,
+      bio: author.profile?.bio?.text || '',
+      power_badge: author.power_badge || false,
+      x_username: xAccount?.username || null,
+    };
+  } catch (e) {
+    console.log(`⚠️ Neynar cast lookup failed: ${e.message}`);
+    return null;
+  }
+}
+
 // ---- Virtuals Protocol Factory ----
 const VIRTUALS_FACTORY = '0xa31bd6a0edbc4da307b8fa92bd6cf39e0fae262c'; // lowercased
 const VIRTUALS_PRELAUNCH_EVENT = '0xac073481b1bc4233bf4afdfbb03f87ea97b0bb2c0305808d5614c824afb4e8b0';
@@ -221,6 +257,10 @@ async function processClankerAiTx(tx, receipt, t0, blockTimestamp) {
         return;
       }
 
+      // Neynar lookup — get author profile, bio, followers, X handle
+      const fcStats = await lookupFarcasterCast(castHash);
+
+      const normalizedHash = castHash.startsWith('0x') ? castHash : `0x${castHash}`;
       broadcastToken({
         contract_address: tokenAddress,
         name,
@@ -230,18 +270,25 @@ async function processClankerAiTx(tx, receipt, t0, blockTimestamp) {
         creator_address: tx.from,
         image_url: null,
         description: null,
-        twitter_link: null,
-        cast_hash: castHash.startsWith('0x') ? castHash : `0x${castHash}`,
+        twitter_link: fcStats?.x_username ? `https://x.com/${fcStats.x_username}` : null,
+        cast_hash: normalizedHash,
         factory_type: 'clanker',
+        farcaster_stats: fcStats || null,
         social_context: {
           interface: 'clanker',
           platform: 'Farcaster',
           messageId: castHash,
+          xUsername: fcStats?.x_username || null,
         },
       });
 
       console.log(`✅ [Clanker AI] ${name} ($${symbol}) — ${tokenAddress}`);
       console.log(`   Farcaster: https://warpcast.com/~/conversations/${castHash}`);
+      if (fcStats) {
+        console.log(`   Author: @${fcStats.author_username} (${fcStats.follower_count} followers${fcStats.power_badge ? ', ⚡ power' : ''})`);
+        if (fcStats.x_username) console.log(`   X: @${fcStats.x_username}`);
+        if (fcStats.bio) console.log(`   Bio: ${fcStats.bio.substring(0, 80)}`);
+      }
       console.log(`   ⏱️  Total: ${(performance.now() - t0).toFixed(0)}ms`);
       console.log('\x1b[35m%s\x1b[0m', '----------------------------------------');
     } else {

@@ -53,6 +53,18 @@ export interface ClankerToken {
   };
   factory_type?: "bankr" | "clanker" | "virtuals";
   virtuals_url?: string;
+  farcaster_stats?: {
+    cast_text: string;
+    author_username: string;
+    author_display_name: string;
+    author_pfp: string | null;
+    author_fid: number | null;
+    follower_count: number;
+    following_count: number;
+    bio: string;
+    power_badge: boolean;
+    x_username: string | null;
+  } | null;
   starting_market_cap?: number;
   created_at: string;
   msg_sender?: string;

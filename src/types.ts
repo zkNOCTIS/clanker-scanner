@@ -156,6 +156,7 @@ const BLOCKED_USERNAMES: string[] = [
 // Blocked Farcaster usernames (spam deployers)
 const BLOCKED_FC_USERNAMES: string[] = [
   "bondings.base.eth",
+  "maspin.eth",
 ];
 
 export function hasRealSocialContext(token: ClankerToken): boolean {

@@ -94,6 +94,10 @@ const CLANKER_AI_FACTORY = '0xe85a59c628f7d27878aceb4bf3b35733630083a9'; // lowe
 const CLANKER_AI_EVENT_TOPIC = '0x9299d1d1a88d8e1abdc591ae7a167a6bc63a8f17d695804e9091ee33aa89fb67';
 const abiCoder = new ethers.AbiCoder();
 
+// ---- Virtuals Protocol Factory ----
+const VIRTUALS_FACTORY = '0xa31bd6a0edbc4da307b8fa92bd6cf39e0fae262c'; // lowercased
+const VIRTUALS_PRELAUNCH_EVENT = '0xac073481b1bc4233bf4afdfbb03f87ea97b0bb2c0305808d5614c824afb4e8b0';
+
 // Whitelist of legitimate Clanker deployer addresses (lowercase)
 const WHITELISTED_DEPLOYERS = new Set([
   '0x2112b8456ac07c15fa31ddf3bf713e77716ff3f9',
@@ -243,10 +247,120 @@ async function processClankerAiTx(tx, receipt, t0, blockTimestamp) {
   }
 }
 
+// Process a Virtuals Protocol PreLaunch tx — query API for metadata + socials
+async function processVirtualsTx(tx, receipt, t0, blockTimestamp) {
+  try {
+    // Find PreLaunch event log from the factory
+    const prelaunchLog = receipt.logs.find(
+      log => log.topics[0] === VIRTUALS_PRELAUNCH_EVENT
+    );
+    if (!prelaunchLog) {
+      console.log('⚠️ Virtuals tx but no PreLaunch event found. Skipping.');
+      return;
+    }
+
+    // preToken address from topic[1] (indexed)
+    const preTokenAddress = ethers.getAddress('0x' + prelaunchLog.topics[1].slice(26));
+
+    // Query Virtuals API for metadata + socials (retry once after 3s if not indexed yet)
+    let apiData = null;
+    const apiUrl = `https://api.virtuals.io/api/virtuals?filters[preToken][$eq]=${preTokenAddress}`;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        if (attempt > 0) {
+          console.log(`   Retrying Virtuals API in 3s (attempt ${attempt + 1})...`);
+          await new Promise(r => setTimeout(r, 3000));
+        }
+        const res = await fetch(apiUrl, { signal: AbortSignal.timeout(5000) });
+        if (res.ok) {
+          const json = await res.json();
+          apiData = json.data?.[0] || null;
+          if (apiData) break; // Got data, stop retrying
+        }
+      } catch (e) {
+        console.log(`⚠️ Virtuals API fetch failed for ${preTokenAddress}: ${e.message}`);
+      }
+    }
+
+    // Extract socials — check both agent-level and creator-level
+    let twitterUrl = null;
+    let telegramUrl = null;
+    let githubUrl = null;
+
+    if (apiData) {
+      // Agent-level socials
+      const socials = apiData.socials || {};
+      twitterUrl = socials.TWITTER || socials.x || socials.VERIFIED_LINKS?.TWITTER || null;
+      telegramUrl = socials.telegram || socials.TELEGRAM || socials.VERIFIED_LINKS?.TELEGRAM || null;
+      githubUrl = socials.github || socials.GITHUB || socials.VERIFIED_LINKS?.GITHUB || null;
+
+      // Creator-level socials (fallback)
+      const creatorSocials = apiData.creator?.socials || {};
+      if (!twitterUrl) {
+        twitterUrl = creatorSocials.VERIFIED_LINKS?.TWITTER || null;
+      }
+      if (!telegramUrl) {
+        telegramUrl = creatorSocials.VERIFIED_LINKS?.TELEGRAM || null;
+      }
+      if (!githubUrl) {
+        githubUrl = creatorSocials.VERIFIED_LINKS?.GITHUB || null;
+      }
+    }
+
+    // FILTER: Skip tokens without any socials
+    if (!twitterUrl && !telegramUrl && !githubUrl) {
+      const name = apiData?.name || preTokenAddress.slice(0, 10);
+      console.log(`⚠️ Virtuals: No socials for ${name} (${preTokenAddress}). Skipping.`);
+      return;
+    }
+
+    // Build social links array for frontend
+    const socialLinks = [];
+    if (twitterUrl) socialLinks.push({ name: 'x', link: twitterUrl });
+    if (telegramUrl) socialLinks.push({ name: 'telegram', link: telegramUrl });
+    if (githubUrl) socialLinks.push({ name: 'github', link: githubUrl });
+
+    const name = apiData?.name || 'Unknown';
+    const symbol = apiData?.symbol || '???';
+    const imageUrl = apiData?.image?.url || null;
+    const description = apiData?.description || null;
+    const virtualsUrl = `https://app.virtuals.io/prototypes/${preTokenAddress}`;
+
+    broadcastToken({
+      contract_address: preTokenAddress,
+      name,
+      symbol,
+      tx_hash: tx.hash,
+      created_at: blockTimestamp,
+      creator_address: tx.from,
+      image_url: imageUrl,
+      description,
+      twitter_link: twitterUrl,
+      factory_type: 'virtuals',
+      virtuals_url: virtualsUrl,
+      socialLinks,
+      social_context: {
+        interface: 'Virtuals',
+        platform: twitterUrl ? 'X' : 'Virtuals',
+        messageId: twitterUrl || virtualsUrl,
+      },
+    });
+
+    console.log(`✅ [Virtuals] ${name} ($${symbol}) — ${preTokenAddress}`);
+    if (twitterUrl) console.log(`   Twitter: ${twitterUrl}`);
+    if (telegramUrl) console.log(`   Telegram: ${telegramUrl}`);
+    console.log(`   Virtuals: ${virtualsUrl}`);
+    console.log(`   ⏱️  Total: ${(performance.now() - t0).toFixed(0)}ms`);
+    console.log('\x1b[32m%s\x1b[0m', '----------------------------------------');
+  } catch (e) {
+    console.error('[Virtuals] Error processing tx:', e.message);
+  }
+}
+
 async function startListener() {
   try {
     const currentUrl = WSS_URLS[currentUrlIndex];
-    console.log('Starting Aggressive BankrFindr + Clanker AI Monitor...');
+    console.log('Starting Aggressive BankrFindr + Clanker AI + Virtuals Monitor...');
     console.log(`WSS URL: ${currentUrl}`);
 
     provider = new ethers.WebSocketProvider(currentUrl);
@@ -265,9 +379,10 @@ async function startListener() {
         // Use actual block timestamp for created_at (not server time which adds pipeline delay)
         const blockTimestamp = new Date(parseInt(block.timestamp, 16) * 1000).toISOString();
 
-        // Find Bankr matches (calldata) and Clanker AI matches (tx.to)
+        // Find Bankr matches (calldata), Clanker AI matches (tx.to), and Virtuals matches (tx.to)
         const bankrMatches = [];
         const clankerAiTxs = [];
+        const virtualsTxs = [];
         for (const tx of block.transactions) {
           const data = tx.input || tx.data || '';
           // Bankr: match calldata selector + IPFS prefix
@@ -279,12 +394,16 @@ async function startListener() {
           if (tx.to && tx.to.toLowerCase() === CLANKER_AI_FACTORY) {
             clankerAiTxs.push(tx);
           }
+          // Virtuals: match tx.to === factory address
+          if (tx.to && tx.to.toLowerCase() === VIRTUALS_FACTORY) {
+            virtualsTxs.push(tx);
+          }
         }
 
-        if (bankrMatches.length === 0 && clankerAiTxs.length === 0) return;
+        if (bankrMatches.length === 0 && clankerAiTxs.length === 0 && virtualsTxs.length === 0) return;
 
-        const totalMatches = bankrMatches.length + clankerAiTxs.length;
-        console.log(`\n⚡ Block ${blockNumber}: ${totalMatches} deploy(s) found [Bankr: ${bankrMatches.length}, Clanker: ${clankerAiTxs.length}] (block fetch: ${(tBlock - t0).toFixed(0)}ms)`);
+        const totalMatches = bankrMatches.length + clankerAiTxs.length + virtualsTxs.length;
+        console.log(`\n⚡ Block ${blockNumber}: ${totalMatches} deploy(s) found [Bankr: ${bankrMatches.length}, Clanker: ${clankerAiTxs.length}, Virtuals: ${virtualsTxs.length}] (block fetch: ${(tBlock - t0).toFixed(0)}ms)`);
 
         // Process all matching txs in parallel
         const allPromises = [];
@@ -295,6 +414,15 @@ async function startListener() {
             provider.send('eth_getTransactionReceipt', [tx.hash])
               .then(receipt => processClankerAiTx(tx, receipt, t0, blockTimestamp))
               .catch(e => console.error('[Clanker AI] Receipt fetch failed:', e.message))
+          );
+        }
+
+        // Virtuals txs — fetch receipt then query API for socials
+        for (const tx of virtualsTxs) {
+          allPromises.push(
+            provider.send('eth_getTransactionReceipt', [tx.hash])
+              .then(receipt => processVirtualsTx(tx, receipt, t0, blockTimestamp))
+              .catch(e => console.error('[Virtuals] Receipt fetch failed:', e.message))
           );
         }
 
@@ -460,5 +588,5 @@ WSS_URLS.forEach((url, i) => {
   console.log(`   ${i === 0 ? 'Primary' : 'Backup'}: ${url}`);
 });
 
-console.log('🎯 Bankr + Clanker AI Token Scanner Starting...\n');
+console.log('🎯 Bankr + Clanker AI + Virtuals Token Scanner Starting...\n');
 startListener();

@@ -36,6 +36,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
   }, []);
 
   const isClanker = token.factory_type === "clanker";
+  const isVirtuals = token.factory_type === "virtuals";
 
   // Clanker auto-buy: click arms it, fires BasedBot at 8.6s to land ~10s on chain
   const [autoBuyArmed, setAutoBuyArmed] = useState(false);
@@ -126,7 +127,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
   };
 
   return (
-    <div className={`rounded-sm overflow-hidden border border-[#30363d] ${isClanker ? "bg-[#1c1408]" : "bg-[#0c1222]"}`}>
+    <div className={`rounded-sm overflow-hidden border border-[#30363d] ${isVirtuals ? "bg-[#0c1a0c]" : isClanker ? "bg-[#1c1408]" : "bg-[#0c1222]"}`}>
       {/* Header */}
       <div className="p-4">
         <div className="flex items-start justify-between gap-4">
@@ -142,7 +143,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
                 {formatTimeAgo(token.created_at)}
               </span>
               {platform === "X" && (
-                <svg className={`w-4 h-4 ${isClanker ? "text-[#f97316]" : "text-[#00d9ff]"}`} viewBox="0 0 24 24" fill="currentColor">
+                <svg className={`w-4 h-4 ${isVirtuals ? "text-[#00ff88]" : isClanker ? "text-[#f97316]" : "text-[#00d9ff]"}`} viewBox="0 0 24 24" fill="currentColor">
                   <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
                 </svg>
               )}
@@ -150,9 +151,9 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
                 <span className="text-purple-400 font-mono text-sm">FC</span>
               )}
             </div>
-            <h2 className={`text-2xl font-mono font-bold truncate ${isClanker ? "text-[#f97316]" : "text-[#00d9ff]"}`}>{token.name}</h2>
+            <h2 className={`text-2xl font-mono font-bold truncate ${isVirtuals ? "text-[#00ff88]" : isClanker ? "text-[#f97316]" : "text-[#00d9ff]"}`}>{token.name}</h2>
             <div className="flex items-center gap-3">
-              <p className={`text-lg font-mono ${isClanker ? "text-[#f97316]" : "text-[#00ff88]"}`}>${token.symbol}</p>
+              <p className={`text-lg font-mono ${isVirtuals ? "text-[#00ff88]" : isClanker ? "text-[#f97316]" : "text-[#00ff88]"}`}>${token.symbol}</p>
               {mcap !== null && (
                 <span className={`text-lg font-mono font-bold ${mcap >= 30000 ? 'text-[#00ff88]' : 'text-yellow-400'}`}>
                   MC: ${mcap >= 1000000 ? (mcap / 1000000).toFixed(1) + 'M' : mcap >= 1000 ? (mcap / 1000).toFixed(1) + 'K' : mcap.toFixed(0)}
@@ -168,18 +169,18 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
                 href={`https://x.com/${twitterStats.replied_to_username}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className={`flex flex-col items-center justify-center gap-2 px-6 py-4 border-2 rounded-lg transition-all min-w-[200px] ${isClanker ? "bg-orange-500/10 border-orange-500/30 hover:bg-orange-500/20 hover:border-orange-500/50" : "bg-blue-500/10 border-blue-500/30 hover:bg-blue-500/20 hover:border-blue-500/50"}`}
+                className={`flex flex-col items-center justify-center gap-2 px-6 py-4 border-2 rounded-lg transition-all min-w-[200px] ${isVirtuals ? "bg-green-500/10 border-green-500/30 hover:bg-green-500/20 hover:border-green-500/50" : isClanker ? "bg-orange-500/10 border-orange-500/30 hover:bg-orange-500/20 hover:border-orange-500/50" : "bg-blue-500/10 border-blue-500/30 hover:bg-blue-500/20 hover:border-blue-500/50"}`}
               >
                 <div className="flex items-center gap-2">
-                  <svg className={`w-5 h-5 ${isClanker ? "text-orange-400" : "text-blue-400"}`} fill="currentColor" viewBox="0 0 24 24">
+                  <svg className={`w-5 h-5 ${isVirtuals ? "text-green-400" : isClanker ? "text-orange-400" : "text-blue-400"}`} fill="currentColor" viewBox="0 0 24 24">
                     <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                   </svg>
-                  <span className={`text-xl font-mono font-bold ${isClanker ? "text-orange-400" : "text-blue-400"}`}>
+                  <span className={`text-xl font-mono font-bold ${isVirtuals ? "text-green-400" : isClanker ? "text-orange-400" : "text-blue-400"}`}>
                     {twitterStats.replied_to_followers_text}
                   </span>
                 </div>
-                <p className={`text-xs font-mono ${isClanker ? "text-orange-300" : "text-blue-300"}`}>Smart Followers</p>
-                <p className={`text-xs font-mono ${isClanker ? "text-orange-300" : "text-blue-300"}`}>
+                <p className={`text-xs font-mono ${isVirtuals ? "text-green-300" : isClanker ? "text-orange-300" : "text-blue-300"}`}>Smart Followers</p>
+                <p className={`text-xs font-mono ${isVirtuals ? "text-green-300" : isClanker ? "text-orange-300" : "text-blue-300"}`}>
                   Reply to @{twitterStats.replied_to_username}
                 </p>
               </a>
@@ -191,7 +192,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
         <div className="mt-4 flex flex-wrap items-center gap-4">
           <button
             onClick={copyCA}
-            className={`flex items-center gap-1 font-mono text-xs px-2 py-1 rounded transition-colors ${isClanker ? "text-[#f97316] hover:bg-[#f97316]/10" : "text-[#00d9ff] hover:bg-[#00d9ff]/10"}`}
+            className={`flex items-center gap-1 font-mono text-xs px-2 py-1 rounded transition-colors ${isVirtuals ? "text-[#00ff88] hover:bg-[#00ff88]/10" : isClanker ? "text-[#f97316] hover:bg-[#f97316]/10" : "text-[#00d9ff] hover:bg-[#00d9ff]/10"}`}
           >
             <span className="text-gray-500">CA:</span>
             {token.contract_address.slice(0, 10)}...{token.contract_address.slice(-6)}
@@ -226,8 +227,23 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
           )}
         </div>
 
-        {/* BasedBot quick-buy link with fee display */}
-        {(() => {
+        {/* Buy button — BasedBot for Bankr/Clanker, Virtuals link for Virtuals */}
+        {isVirtuals ? (
+          <div className="mt-2 flex gap-2">
+            <a
+              href={token.virtuals_url || `https://app.virtuals.io/prototypes/${token.contract_address}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-1 flex items-center justify-center gap-2 py-2 rounded font-semibold text-sm bg-[#00ff88]/10 border border-[#00ff88]/30 text-[#00ff88] hover:bg-[#00ff88]/20 transition-colors"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              Virtuals
+              <span className="text-red-400 text-xs">(95% tax — decays 1%/min)</span>
+            </a>
+          </div>
+        ) : (() => {
           const FEE_DURATION = isClanker ? 15 : 10;
           const FEE_START = isClanker ? 66.7 : 80;
           const FEE_END = isClanker ? 4.2 : 1.2;
@@ -346,8 +362,15 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
         </div>
       )}
 
+      {/* Virtuals description — show when no tweet embed */}
+      {isVirtuals && !tweetId && token.description && (
+        <div className="border-t border-[#30363d] p-3">
+          <p className="font-mono text-xs text-gray-300 leading-relaxed">{token.description}</p>
+        </div>
+      )}
+
       {/* Metadata JSON box - for tokens without tweet/cast (InstaClaw, Basenames, terminal etc.) */}
-      {!tweetId && !castUrl && (token.description || token.social_context?.interface) && (
+      {!isVirtuals && !tweetId && !castUrl && (token.description || token.social_context?.interface) && (
         <div className="border-t border-[#30363d] p-3">
           <pre className="font-mono text-xs text-gray-400 bg-[#0d1117] border border-[#30363d] rounded p-3 overflow-x-auto whitespace-pre-wrap">
             {JSON.stringify({

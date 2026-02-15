@@ -51,7 +51,8 @@ export interface ClankerToken {
       }>;
     };
   };
-  factory_type?: "bankr" | "clanker";
+  factory_type?: "bankr" | "clanker" | "virtuals";
+  virtuals_url?: string;
   starting_market_cap?: number;
   created_at: string;
   msg_sender?: string;
@@ -133,6 +134,9 @@ const BLOCKED_USERNAMES: string[] = [
 ];
 
 export function hasRealSocialContext(token: ClankerToken): boolean {
+  // Virtuals tokens are pre-filtered server-side (only ones with socials are broadcast)
+  if (token.factory_type === "virtuals") return true;
+
   // Railway format - check twitter_link directly
   if (token.twitter_link) {
     const tweetUrl = token.twitter_link;

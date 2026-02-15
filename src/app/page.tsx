@@ -271,7 +271,9 @@ function HomeContent() {
           <h1 className="text-2xl font-bold font-mono tracking-wider">
             <span className="text-[#f97316]">CLANKER</span>{" "}
             <span className="text-[#00d9ff]">X</span>{" "}
-            <span className="text-[#3b82f6]">BANKR</span>
+            <span className="text-[#3b82f6]">BANKR</span>{" "}
+            <span className="text-[#00d9ff]">X</span>{" "}
+            <span className="text-[#00ff88]">VIRTUALS</span>
           </h1>
           <div className="flex items-center gap-3">
             <button
@@ -356,7 +358,7 @@ function HomeContent() {
                       onClick={() => {
                         document.getElementById(`token-${token.contract_address}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
                       }}
-                      className={`w-full px-3 py-2 flex items-center justify-between hover:brightness-125 transition-colors text-left border-l-2 ${token.factory_type === "clanker" ? "border-[#f97316]/50" : "border-[#3b82f6]/50"} ${token.factory_type === "clanker" ? "bg-[#f97316]/10" : "bg-[#3b82f6]/10"}`}
+                      className={`w-full px-3 py-2 flex items-center justify-between hover:brightness-125 transition-colors text-left border-l-2 ${token.factory_type === "virtuals" ? "border-[#00ff88]/50 bg-[#00ff88]/10" : token.factory_type === "clanker" ? "border-[#f97316]/50 bg-[#f97316]/10" : "border-[#3b82f6]/50 bg-[#3b82f6]/10"}`}
                     >
                       <div className="min-w-0">
                         <div className="font-mono text-sm truncate text-white">${token.symbol}</div>

@@ -109,11 +109,35 @@ async function lookupFarcasterCast(castHash) {
     const cast = data.cast;
     if (!cast) return null;
 
-    const author = cast.author || {};
+    let author = cast.author || {};
+    let castText = cast.text || '';
+
+    // If author is the clanker bot, follow parent_hash to get the real requester
+    const botUsernames = ['clanker', 'bankr', 'bankrbot'];
+    if (botUsernames.includes(author.username?.toLowerCase()) && cast.parent_hash) {
+      try {
+        const parentRes = await fetch(
+          `https://api.neynar.com/v2/farcaster/cast?identifier=${cast.parent_hash}&type=hash`,
+          { headers: { 'api_key': NEYNAR_API_KEY }, signal: AbortSignal.timeout(5000) }
+        );
+        if (parentRes.ok) {
+          const parentData = await parentRes.json();
+          const parentCast = parentData.cast;
+          if (parentCast?.author) {
+            author = parentCast.author;
+            castText = parentCast.text || castText;
+            console.log(`   📌 Parent cast: @${author.username} (${author.follower_count} followers)`);
+          }
+        }
+      } catch (e) {
+        console.log(`⚠️ Parent cast lookup failed: ${e.message}`);
+      }
+    }
+
     const xAccount = (author.verified_accounts || []).find(a => a.platform === 'x');
 
     return {
-      cast_text: cast.text || '',
+      cast_text: castText,
       author_username: author.username || '',
       author_display_name: author.display_name || '',
       author_pfp: author.pfp_url || null,

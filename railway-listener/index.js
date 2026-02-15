@@ -267,13 +267,11 @@ async function processVirtualsTx(tx, receipt, t0, blockTimestamp) {
     // No rush — 95% tax at launch means being 1 min late is fine for DD
     let apiData = null;
     const apiUrl = `https://api.virtuals.io/api/virtuals?filters[preToken][$eq]=${preTokenAddress}`;
-    const retryDelays = [0, 5000, 10000, 15000, 20000]; // 0s, 5s, 10s, 15s, 20s (total ~50s max)
+    const retryDelays = [30000, 60000, 120000]; // 30s, 1min, 2min — no rush, 95% tax
     for (let attempt = 0; attempt < retryDelays.length; attempt++) {
       try {
-        if (retryDelays[attempt] > 0) {
-          console.log(`   Retrying Virtuals API in ${retryDelays[attempt]/1000}s (attempt ${attempt + 1}/${retryDelays.length})...`);
-          await new Promise(r => setTimeout(r, retryDelays[attempt]));
-        }
+        console.log(`   [Virtuals] Querying API in ${retryDelays[attempt]/1000}s (attempt ${attempt + 1}/${retryDelays.length}) for ${preTokenAddress}...`);
+        await new Promise(r => setTimeout(r, retryDelays[attempt]));
         const res = await fetch(apiUrl, { signal: AbortSignal.timeout(5000) });
         if (res.ok) {
           const json = await res.json();

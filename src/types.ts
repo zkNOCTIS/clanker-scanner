@@ -153,6 +153,11 @@ const BLOCKED_USERNAMES: string[] = [
   "b0bbythakkar",
 ];
 
+// Blocked Farcaster usernames (spam deployers)
+const BLOCKED_FC_USERNAMES: string[] = [
+  "bondings.base.eth",
+];
+
 export function hasRealSocialContext(token: ClankerToken): boolean {
   // Virtuals tokens are pre-filtered server-side (only ones with socials are broadcast)
   if (token.factory_type === "virtuals") return true;
@@ -203,6 +208,10 @@ export function hasRealSocialContext(token: ClankerToken): boolean {
   const messageId = token.social_context?.messageId || "";
   const socialId = token.social_context?.id || "";
   if (getTweetId(messageId) || getTweetId(socialId)) return true;
+
+  // Farcaster tokens — block spammers by username
+  const fcUsername = token.farcaster_stats?.author_username?.toLowerCase() || "";
+  if (fcUsername && BLOCKED_FC_USERNAMES.includes(fcUsername)) return false;
 
   // Farcaster tokens — show all with valid cast hash
   if (castHash && castHash.startsWith("0x")) return true;

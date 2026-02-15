@@ -262,14 +262,17 @@ async function processVirtualsTx(tx, receipt, t0, blockTimestamp) {
     // preToken address from topic[1] (indexed)
     const preTokenAddress = ethers.getAddress('0x' + prelaunchLog.topics[1].slice(26));
 
-    // Query Virtuals API for metadata + socials (retry once after 3s if not indexed yet)
+    // Query Virtuals API for metadata + socials (retry with increasing delays)
+    // API may not have indexed the token yet when the on-chain tx lands
+    // No rush — 95% tax at launch means being 1 min late is fine for DD
     let apiData = null;
     const apiUrl = `https://api.virtuals.io/api/virtuals?filters[preToken][$eq]=${preTokenAddress}`;
-    for (let attempt = 0; attempt < 2; attempt++) {
+    const retryDelays = [0, 5000, 10000, 15000, 20000]; // 0s, 5s, 10s, 15s, 20s (total ~50s max)
+    for (let attempt = 0; attempt < retryDelays.length; attempt++) {
       try {
-        if (attempt > 0) {
-          console.log(`   Retrying Virtuals API in 3s (attempt ${attempt + 1})...`);
-          await new Promise(r => setTimeout(r, 3000));
+        if (retryDelays[attempt] > 0) {
+          console.log(`   Retrying Virtuals API in ${retryDelays[attempt]/1000}s (attempt ${attempt + 1}/${retryDelays.length})...`);
+          await new Promise(r => setTimeout(r, retryDelays[attempt]));
         }
         const res = await fetch(apiUrl, { signal: AbortSignal.timeout(5000) });
         if (res.ok) {
@@ -281,31 +284,24 @@ async function processVirtualsTx(tx, receipt, t0, blockTimestamp) {
         console.log(`⚠️ Virtuals API fetch failed for ${preTokenAddress}: ${e.message}`);
       }
     }
+    if (!apiData) {
+      console.log(`⚠️ Virtuals: API returned no data after ${retryDelays.length} attempts for ${preTokenAddress}. Skipping.`);
+      return;
+    }
 
     // Extract socials — check both agent-level and creator-level
-    let twitterUrl = null;
-    let telegramUrl = null;
-    let githubUrl = null;
+    // Agent-level socials
+    const socials = apiData.socials || {};
+    let twitterUrl = socials.TWITTER || socials.twitter || socials.x || socials.X || socials.VERIFIED_LINKS?.TWITTER || null;
+    let telegramUrl = socials.TELEGRAM || socials.telegram || socials.VERIFIED_LINKS?.TELEGRAM || null;
+    let githubUrl = socials.GITHUB || socials.github || socials.VERIFIED_LINKS?.GITHUB || null;
 
-    if (apiData) {
-      // Agent-level socials
-      const socials = apiData.socials || {};
-      twitterUrl = socials.TWITTER || socials.x || socials.VERIFIED_LINKS?.TWITTER || null;
-      telegramUrl = socials.telegram || socials.TELEGRAM || socials.VERIFIED_LINKS?.TELEGRAM || null;
-      githubUrl = socials.github || socials.GITHUB || socials.VERIFIED_LINKS?.GITHUB || null;
-
-      // Creator-level socials (fallback)
-      const creatorSocials = apiData.creator?.socials || {};
-      if (!twitterUrl) {
-        twitterUrl = creatorSocials.VERIFIED_LINKS?.TWITTER || null;
-      }
-      if (!telegramUrl) {
-        telegramUrl = creatorSocials.VERIFIED_LINKS?.TELEGRAM || null;
-      }
-      if (!githubUrl) {
-        githubUrl = creatorSocials.VERIFIED_LINKS?.GITHUB || null;
-      }
-    }
+    // Creator-level socials (fallback — "The Team" section on Virtuals)
+    const creatorSocials = apiData.creator?.socials || {};
+    const creatorLinks = creatorSocials.VERIFIED_LINKS || {};
+    if (!twitterUrl) twitterUrl = creatorLinks.TWITTER || creatorLinks.twitter || null;
+    if (!telegramUrl) telegramUrl = creatorLinks.TELEGRAM || creatorLinks.telegram || null;
+    if (!githubUrl) githubUrl = creatorLinks.GITHUB || creatorLinks.github || null;
 
     // FILTER: Skip tokens without any socials
     if (!twitterUrl && !telegramUrl && !githubUrl) {
@@ -394,8 +390,8 @@ async function startListener() {
           if (tx.to && tx.to.toLowerCase() === CLANKER_AI_FACTORY) {
             clankerAiTxs.push(tx);
           }
-          // Virtuals: match tx.to === factory address
-          if (tx.to && tx.to.toLowerCase() === VIRTUALS_FACTORY) {
+          // Virtuals: match tx.to === factory + PreLaunch selector (0x5421575e)
+          if (tx.to && tx.to.toLowerCase() === VIRTUALS_FACTORY && data.startsWith('0x5421575e')) {
             virtualsTxs.push(tx);
           }
         }

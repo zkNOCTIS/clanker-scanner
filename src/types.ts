@@ -158,6 +158,7 @@ const BLOCKED_FC_USERNAMES: string[] = [
   "bondings.base.eth",
   "maspin.eth",
   "primenode.eth",
+  "amzgaming",
 ];
 
 export function hasRealSocialContext(token: ClankerToken): boolean {

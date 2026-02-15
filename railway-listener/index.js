@@ -393,7 +393,30 @@ async function processVirtualsTx(tx, receipt, t0, blockTimestamp) {
       return;
     }
 
-    // Extract socials — check both agent-level and creator-level
+    // --- ACP lookup (acpx.virtuals.io) for extra data: twitterHandle, success rate, jobs ---
+    let acpData = null;
+    const acpAgentId = apiData.acpAgentId;
+    try {
+      let acpUrl = null;
+      if (acpAgentId) {
+        acpUrl = `https://acpx.virtuals.io/api/agents/${acpAgentId}`;
+      } else {
+        // Fallback: search by token address
+        acpUrl = `https://acpx.virtuals.io/api/agents?filters[tokenAddress][$eq]=${preTokenAddress}`;
+      }
+      const acpRes = await fetch(acpUrl, { signal: AbortSignal.timeout(5000) });
+      if (acpRes.ok) {
+        const acpJson = await acpRes.json();
+        acpData = acpAgentId ? acpJson.data : acpJson.data?.[0] || null;
+        if (acpData) {
+          console.log(`   📊 ACP: @${acpData.twitterHandle || 'n/a'} | ${acpData.successRate || 0}% success | ${acpData.successfulJobCount || 0} jobs`);
+        }
+      }
+    } catch (e) {
+      console.log(`⚠️ ACP lookup failed: ${e.message}`);
+    }
+
+    // Extract socials — check Virtuals API, creator socials, then ACP fallback
     // Agent-level socials
     const socials = apiData.socials || {};
     let twitterUrl = socials.TWITTER || socials.twitter || socials.x || socials.X || socials.VERIFIED_LINKS?.TWITTER || null;
@@ -406,6 +429,12 @@ async function processVirtualsTx(tx, receipt, t0, blockTimestamp) {
     if (!twitterUrl) twitterUrl = creatorLinks.TWITTER || creatorLinks.twitter || null;
     if (!telegramUrl) telegramUrl = creatorLinks.TELEGRAM || creatorLinks.telegram || null;
     if (!githubUrl) githubUrl = creatorLinks.GITHUB || creatorLinks.github || null;
+
+    // ACP fallback — twitterHandle from agdp.io data
+    if (!twitterUrl && acpData?.twitterHandle) {
+      twitterUrl = `https://x.com/${acpData.twitterHandle}`;
+      console.log(`   🔗 Twitter from ACP: ${twitterUrl}`);
+    }
 
     // FILTER: Skip tokens without any socials
     if (!twitterUrl && !telegramUrl && !githubUrl) {
@@ -422,9 +451,19 @@ async function processVirtualsTx(tx, receipt, t0, blockTimestamp) {
 
     const name = apiData?.name || 'Unknown';
     const symbol = apiData?.symbol || '???';
-    const imageUrl = apiData?.image?.url || null;
-    const description = apiData?.description || null;
+    const imageUrl = apiData?.image?.url || acpData?.profilePic || null;
+    const description = apiData?.description || acpData?.description || null;
     const virtualsUrl = `https://app.virtuals.io/prototypes/${preTokenAddress}`;
+
+    // ACP stats for frontend
+    const acpStats = acpData ? {
+      success_rate: acpData.successRate || 0,
+      jobs_completed: acpData.successfulJobCount || 0,
+      unique_buyers: acpData.uniqueBuyerCount || 0,
+      rating: acpData.rating || null,
+      twitter_handle: acpData.twitterHandle || null,
+      acp_agent_id: acpData.id || acpAgentId,
+    } : null;
 
     broadcastToken({
       contract_address: preTokenAddress,
@@ -438,6 +477,7 @@ async function processVirtualsTx(tx, receipt, t0, blockTimestamp) {
       twitter_link: twitterUrl,
       factory_type: 'virtuals',
       virtuals_url: virtualsUrl,
+      acp_stats: acpStats,
       socialLinks,
       social_context: {
         interface: 'Virtuals',
@@ -450,6 +490,7 @@ async function processVirtualsTx(tx, receipt, t0, blockTimestamp) {
     if (twitterUrl) console.log(`   Twitter: ${twitterUrl}`);
     if (telegramUrl) console.log(`   Telegram: ${telegramUrl}`);
     console.log(`   Virtuals: ${virtualsUrl}`);
+    if (acpStats) console.log(`   ACP: ${acpStats.success_rate}% success, ${acpStats.jobs_completed} jobs, ${acpStats.unique_buyers} buyers`);
     console.log(`   ⏱️  Total: ${(performance.now() - t0).toFixed(0)}ms`);
     console.log('\x1b[32m%s\x1b[0m', '----------------------------------------');
   } catch (e) {

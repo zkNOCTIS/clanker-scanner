@@ -228,7 +228,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
         </div>
 
         {/* Buy button — BasedBot for Bankr/Clanker, Virtuals link for Virtuals */}
-        {isVirtuals ? (
+        {isVirtuals && (
           <div className="mt-2 flex gap-2">
             <a
               href={token.virtuals_url || `https://app.virtuals.io/prototypes/${token.contract_address}`}
@@ -243,7 +243,33 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
               <span className="text-red-400 text-xs">(95% tax — decays 1%/min)</span>
             </a>
           </div>
-        ) : (() => {
+        )}
+
+        {/* ACP Agent Stats for Virtuals */}
+        {isVirtuals && token.acp_stats && (
+          <div className="mt-2 flex gap-3 text-xs font-mono">
+            <div className="flex items-center gap-1 px-2 py-1 rounded bg-[#00ff88]/10 border border-[#00ff88]/20">
+              <span className="text-gray-400">Success:</span>
+              <span className={token.acp_stats.success_rate >= 70 ? "text-[#00ff88]" : "text-yellow-400"}>{token.acp_stats.success_rate}%</span>
+            </div>
+            <div className="flex items-center gap-1 px-2 py-1 rounded bg-[#00ff88]/10 border border-[#00ff88]/20">
+              <span className="text-gray-400">Jobs:</span>
+              <span className="text-white">{token.acp_stats.jobs_completed}</span>
+            </div>
+            <div className="flex items-center gap-1 px-2 py-1 rounded bg-[#00ff88]/10 border border-[#00ff88]/20">
+              <span className="text-gray-400">Buyers:</span>
+              <span className="text-white">{token.acp_stats.unique_buyers}</span>
+            </div>
+            {token.acp_stats.rating && (
+              <div className="flex items-center gap-1 px-2 py-1 rounded bg-[#00ff88]/10 border border-[#00ff88]/20">
+                <span className="text-gray-400">Rating:</span>
+                <span className="text-[#00ff88]">{token.acp_stats.rating}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {!isVirtuals && (() => {
           const FEE_DURATION = isClanker ? 15 : 10;
           const FEE_START = isClanker ? 66.7 : 80;
           const FEE_END = isClanker ? 4.2 : 1.2;

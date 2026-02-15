@@ -157,6 +157,7 @@ const BLOCKED_USERNAMES: string[] = [
 const BLOCKED_FC_USERNAMES: string[] = [
   "bondings.base.eth",
   "maspin.eth",
+  "primenode.eth",
 ];
 
 export function hasRealSocialContext(token: ClankerToken): boolean {

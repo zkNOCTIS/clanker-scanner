@@ -205,43 +205,78 @@ async function processClankerAiTx(tx, receipt, t0, blockTimestamp) {
     const platform = (socialContext.platform || '').toLowerCase();
     const messageId = socialContext.messageId || '';
 
-    // Only show tokens deployed from Twitter/X
-    if (platform !== 'twitter' && platform !== 'x') {
-      console.log(`⚠️ Clanker AI: Skipping non-Twitter platform "${platform}" for ${symbol}`);
+    // Only show tokens deployed from Twitter/X or Farcaster
+    if (platform !== 'twitter' && platform !== 'x' && platform !== 'farcaster') {
+      console.log(`⚠️ Clanker AI: Skipping unknown platform "${platform}" for ${symbol}`);
       return;
     }
 
-    // messageId can be numeric tweet ID or full URL — normalize to URL
-    const tweetUrl = messageId
-      ? (messageId.startsWith('http') ? messageId : `https://x.com/i/status/${messageId}`)
-      : null;
-    if (!tweetUrl) {
-      console.log(`⚠️ Clanker AI: No messageId for ${symbol}. Skipping.`);
-      return;
+    const isFarcaster = platform === 'farcaster';
+
+    if (isFarcaster) {
+      // Farcaster deploy — messageId is cast hash
+      const castHash = messageId || null;
+      if (!castHash) {
+        console.log(`⚠️ Clanker AI: No cast hash for Farcaster deploy ${symbol}. Skipping.`);
+        return;
+      }
+
+      broadcastToken({
+        contract_address: tokenAddress,
+        name,
+        symbol,
+        tx_hash: tx.hash,
+        created_at: blockTimestamp,
+        creator_address: tx.from,
+        image_url: null,
+        description: null,
+        twitter_link: null,
+        cast_hash: castHash.startsWith('0x') ? castHash : `0x${castHash}`,
+        factory_type: 'clanker',
+        social_context: {
+          interface: 'clanker',
+          platform: 'Farcaster',
+          messageId: castHash,
+        },
+      });
+
+      console.log(`✅ [Clanker AI] ${name} ($${symbol}) — ${tokenAddress}`);
+      console.log(`   Farcaster: https://warpcast.com/~/conversations/${castHash}`);
+      console.log(`   ⏱️  Total: ${(performance.now() - t0).toFixed(0)}ms`);
+      console.log('\x1b[35m%s\x1b[0m', '----------------------------------------');
+    } else {
+      // Twitter/X deploy — messageId is tweet ID or URL
+      const tweetUrl = messageId
+        ? (messageId.startsWith('http') ? messageId : `https://x.com/i/status/${messageId}`)
+        : null;
+      if (!tweetUrl) {
+        console.log(`⚠️ Clanker AI: No messageId for ${symbol}. Skipping.`);
+        return;
+      }
+
+      broadcastToken({
+        contract_address: tokenAddress,
+        name,
+        symbol,
+        tx_hash: tx.hash,
+        created_at: blockTimestamp,
+        creator_address: tx.from,
+        image_url: null,
+        description: null,
+        twitter_link: tweetUrl,
+        factory_type: 'clanker',
+        social_context: {
+          interface: 'clanker',
+          platform: 'X',
+          messageId: tweetUrl,
+        },
+      });
+
+      console.log(`✅ [Clanker AI] ${name} ($${symbol}) — ${tokenAddress}`);
+      console.log(`   Tweet: ${tweetUrl}`);
+      console.log(`   ⏱️  Total: ${(performance.now() - t0).toFixed(0)}ms`);
+      console.log('\x1b[36m%s\x1b[0m', '----------------------------------------');
     }
-
-    broadcastToken({
-      contract_address: tokenAddress,
-      name,
-      symbol,
-      tx_hash: tx.hash,
-      created_at: blockTimestamp,
-      creator_address: tx.from,
-      image_url: null,
-      description: null,
-      twitter_link: tweetUrl,
-      factory_type: 'clanker',
-      social_context: {
-        interface: 'clanker',
-        platform: 'X',
-        messageId: tweetUrl,
-      },
-    });
-
-    console.log(`✅ [Clanker AI] ${name} ($${symbol}) — ${tokenAddress}`);
-    console.log(`   Tweet: ${tweetUrl}`);
-    console.log(`   ⏱️  Total: ${(performance.now() - t0).toFixed(0)}ms`);
-    console.log('\x1b[36m%s\x1b[0m', '----------------------------------------');
   } catch (e) {
     console.error('[Clanker AI] Error processing tx:', e.message);
   }

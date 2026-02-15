@@ -184,11 +184,9 @@ export function hasRealSocialContext(token: ClankerToken): boolean {
   const socialId = token.social_context?.id || "";
   if (getTweetId(messageId) || getTweetId(socialId)) return true;
 
-  // Farcaster tokens - only show if they have a verified X username to display
-  if ((castHash && castHash.startsWith("0x")) || token.social_context?.xUsername) {
-    if (token.social_context?.xUsername) return true;
-    return false;
-  }
+  // Farcaster tokens — show all with valid cast hash
+  if (castHash && castHash.startsWith("0x")) return true;
+  if (token.social_context?.xUsername) return true;
 
   // Tokens with 2+ UNIQUE social links (different URLs)
   // Filters out scams where all links point to same URL

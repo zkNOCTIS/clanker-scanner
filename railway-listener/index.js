@@ -501,30 +501,6 @@ async function processVirtualsTx(tx, receipt, t0, blockTimestamp) {
   }
 }
 
-// Fetch builder data from Noice public API (with retry for indexing delay)
-async function fetchNoiceProject(tokenAddress) {
-  const retryDelays = [3000, 10000, 30000]; // 3s, 10s, 30s
-  for (let attempt = 0; attempt < retryDelays.length; attempt++) {
-    try {
-      await new Promise(r => setTimeout(r, retryDelays[attempt]));
-      console.log(`   [Noice API] Attempt ${attempt + 1}/${retryDelays.length} for ${tokenAddress.slice(0, 10)}...`);
-      const res = await fetch(
-        `https://noice.so/api/public/projectByAddress?address=${tokenAddress}`,
-        { signal: AbortSignal.timeout(5000), headers: { 'User-Agent': 'Mozilla/5.0' } }
-      );
-      if (!res.ok) {
-        console.log(`   ⚠️ Noice API returned ${res.status}`);
-        continue;
-      }
-      const data = await res.json();
-      if (data && data.builders) return data;
-    } catch (e) {
-      console.log(`   ⚠️ Noice API attempt ${attempt + 1} failed: ${e.message}`);
-    }
-  }
-  return null;
-}
-
 // Scrape a website for X/Twitter links (best-effort, short timeout)
 async function scrapeForTwitter(url) {
   try {
@@ -627,55 +603,41 @@ async function processNoiceTx(tx, ipfsCid, t0, blockTimestamp) {
 
     console.log(`✅ [Noice] ${name} ($${symbol}) — ${(performance.now() - t0).toFixed(0)}ms total (initial broadcast)`);
 
-    // Background: fetch Noice API for builder X handles (3s delay for indexing)
-    fetchNoiceProject(createdToken).then(project => {
-      if (!project) return;
-
-      // Extract builder X URLs
-      const builders = project.builders || [];
-      const builderXUrls = builders
-        .filter(b => b.url && (b.url.includes('x.com') || b.url.includes('twitter.com')))
-        .map(b => b.url);
-
-      // Extract socials from API
-      const apiSocials = project.socials || [];
-
-      // Use first builder X URL as twitter_link
-      twitterLink = builderXUrls[0] || null;
-
-      if (twitterLink || builderXUrls.length > 0 || apiSocials.length > 0) {
-        console.log(`   🔗 [Noice API] Builders: ${builders.map(b => b.name).join(', ')}`);
-        if (twitterLink) console.log(`   🔗 [Noice API] X: ${twitterLink}`);
-
-        // Build enriched social links
-        const enrichedLinks = [...socialLinks];
-        for (const xUrl of builderXUrls) {
-          if (!enrichedLinks.some(l => l.link === xUrl)) {
-            enrichedLinks.push({ name: 'x', link: xUrl });
+    // Background: scrape Noice project page for builder X handles (API is 429-blocked)
+    if (noiceUrl) {
+      setTimeout(async () => {
+        try {
+          console.log(`   [Noice Scrape] Scraping ${noiceUrl} for X links...`);
+          twitterLink = await scrapeForTwitter(noiceUrl);
+          if (twitterLink) {
+            console.log(`   🔗 [Noice Scrape] Found X: ${twitterLink}`);
+            const enrichedLinks = [...socialLinks];
+            if (!enrichedLinks.some(l => l.link === twitterLink)) {
+              enrichedLinks.push({ name: 'x', link: twitterLink });
+            }
+            const buffered = recentTokens.find(t => t.contract_address.toLowerCase() === createdToken.toLowerCase());
+            if (buffered) {
+              buffered.twitter_link = twitterLink;
+              buffered.socialLinks = enrichedLinks;
+              buffered.social_context = {
+                interface: 'Noice',
+                platform: 'X',
+                messageId: twitterLink,
+              };
+              const msg = JSON.stringify({ type: 'update', token: buffered });
+              for (const ws of wsClients) {
+                if (ws.readyState === 1) ws.send(msg);
+              }
+              console.log(`   ✅ [Noice Scrape] Enriched ${symbol} with X link, re-broadcast to ${wsClients.size} clients`);
+            }
+          } else {
+            console.log(`   ⚠️ [Noice Scrape] No X link found on project page`);
           }
+        } catch (e) {
+          console.log(`   ⚠️ [Noice Scrape] Failed: ${e.message}`);
         }
-
-        // Update the token in the buffer with enriched data
-        const buffered = recentTokens.find(t => t.contract_address.toLowerCase() === createdToken.toLowerCase());
-        if (buffered) {
-          buffered.twitter_link = twitterLink;
-          buffered.socialLinks = enrichedLinks;
-          buffered.social_context = {
-            interface: 'Noice',
-            platform: twitterLink ? 'X' : 'Noice',
-            messageId: twitterLink || noiceUrl || '',
-          };
-          // Re-broadcast updated token to connected clients
-          const msg = JSON.stringify({ type: 'update', token: buffered });
-          for (const ws of wsClients) {
-            if (ws.readyState === 1) ws.send(msg);
-          }
-          console.log(`   ✅ [Noice API] Enriched ${symbol} with builder data, re-broadcast to ${wsClients.size} clients`);
-        }
-      }
-    }).catch(e => {
-      console.log(`   ⚠️ [Noice API] Background enrichment failed: ${e.message}`);
-    });
+      }, 2000); // 2s delay for page to be ready
+    }
 
     console.log('\x1b[36m%s\x1b[0m', '----------------------------------------');
   } catch (e) {

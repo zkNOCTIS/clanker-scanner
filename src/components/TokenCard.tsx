@@ -88,8 +88,29 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
           .find((u: string | undefined) => u && (u.includes('x.com') || u.includes('twitter.com')));
         if (xUrl) {
           setNoiceXLink(xUrl);
-          // Also patch the token object so WebSocket updates preserve it
           token.twitter_link = xUrl;
+
+          // Extract username and fetch smart followers (same as Bankr/Clanker cards)
+          const match = xUrl.match(/(?:x\.com|twitter\.com)\/([a-zA-Z0-9_]{1,15})/);
+          if (match?.[1]) {
+            const username = match[1];
+            try {
+              const statsRes = await fetch(`/api/twitter-stats/${username}`, { signal: ac.signal });
+              const statsData = await statsRes.json();
+              if (statsData.smart_followers !== undefined && statsData.smart_followers !== null) {
+                const formatCount = (count: number) => {
+                  if (count >= 1000000) return (count / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+                  if (count >= 1000) return (count / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+                  return count.toString();
+                };
+                setTwitterStats({
+                  replied_to_username: username,
+                  replied_to_followers: statsData.smart_followers,
+                  replied_to_followers_text: formatCount(statsData.smart_followers),
+                });
+              }
+            } catch { /* stats fetch failed, X link still shows */ }
+          }
         }
       } catch {
         // CORS or network error — silently fail
@@ -215,7 +236,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
                 </div>
                 <p className={`text-xs font-mono ${isNoice ? "text-teal-300" : isVirtuals ? "text-green-300" : isFarcaster ? "text-purple-300" : isClanker ? "text-orange-300" : "text-blue-300"}`}>Smart Followers</p>
                 <p className={`text-xs font-mono ${isNoice ? "text-teal-300" : isVirtuals ? "text-green-300" : isFarcaster ? "text-purple-300" : isClanker ? "text-orange-300" : "text-blue-300"}`}>
-                  Reply to @{twitterStats.replied_to_username}
+                  {isNoice ? 'Builder' : 'Reply to'} @{twitterStats.replied_to_username}
                 </p>
               </a>
             )}

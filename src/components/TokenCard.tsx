@@ -69,64 +69,11 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
   }, [autoBuyArmed, autoBuyFired, token.contract_address, token.created_at]);
 
 
-  // Client-side Noice builder enrichment (browser can pass Vercel challenge, servers can't)
-  const [noiceXLink, setNoiceXLink] = useState<string | null>(null);
-  useEffect(() => {
-    if (!isNoice || token.twitter_link || noiceXLink) return;
-    const ac = new AbortController();
-    const timer = setTimeout(async () => {
-      try {
-        // Use Railway proxy (different infra than Vercel — may bypass Noice's bot protection)
-        const wsUrl = process.env.NEXT_PUBLIC_WS_URL || '';
-        const railwayHost = wsUrl.replace(/^wss?:\/\//, '');
-        const proxyUrl = railwayHost
-          ? `https://${railwayHost}/noice-project/${token.contract_address}`
-          : `/api/noice-project/${token.contract_address}`;
-        const res = await fetch(proxyUrl, { signal: ac.signal });
-        if (!res.ok) return;
-        const data = await res.json();
-        const builders = data?.builders || [];
-        const xUrl = builders
-          .map((b: { url?: string }) => b.url)
-          .find((u: string | undefined) => u && (u.includes('x.com') || u.includes('twitter.com')));
-        if (xUrl) {
-          setNoiceXLink(xUrl);
-          token.twitter_link = xUrl;
-
-          // Extract username and fetch smart followers (same as Bankr/Clanker cards)
-          const match = xUrl.match(/(?:x\.com|twitter\.com)\/([a-zA-Z0-9_]{1,15})/);
-          if (match?.[1]) {
-            const username = match[1];
-            try {
-              const statsRes = await fetch(`/api/twitter-stats/${username}`, { signal: ac.signal });
-              const statsData = await statsRes.json();
-              if (statsData.smart_followers !== undefined && statsData.smart_followers !== null) {
-                const formatCount = (count: number) => {
-                  if (count >= 1000000) return (count / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
-                  if (count >= 1000) return (count / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
-                  return count.toString();
-                };
-                setTwitterStats({
-                  replied_to_username: username,
-                  replied_to_followers: statsData.smart_followers,
-                  replied_to_followers_text: formatCount(statsData.smart_followers),
-                });
-              }
-            } catch { /* stats fetch failed, X link still shows */ }
-          }
-        }
-      } catch {
-        // CORS or network error — silently fail
-      }
-    }, 2000);
-    return () => { clearTimeout(timer); ac.abort(); };
-  }, [isNoice, token.contract_address, token.twitter_link, noiceXLink]);
-
   const tweetUrl = getTweetUrl(token);
   const castUrl = getCastUrl(token);
 
   // Detect platform from Railway format (twitter_link) or old format (social_context.platform)
-  const hasTwitter = !!tweetUrl || !!noiceXLink;
+  const hasTwitter = !!tweetUrl;
   const hasFarcaster = !!castUrl;
   const platform = hasTwitter ? "X" : hasFarcaster ? "FARCASTER" : (token.social_context?.platform?.toUpperCase() || "UNKNOWN");
 
@@ -277,12 +224,12 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
               href={token.noice_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1 text-[#14b8a6] font-mono text-xs hover:bg-[#14b8a6]/10 px-2 py-1 rounded transition-colors"
+              className="flex items-center gap-1.5 text-[#14b8a6] font-mono text-sm font-bold bg-[#14b8a6]/10 border border-[#14b8a6]/30 hover:bg-[#14b8a6]/20 hover:border-[#14b8a6]/50 px-3 py-1.5 rounded transition-colors"
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
               </svg>
-              Noice
+              VIEW BUILDER
             </a>
           )}
 
@@ -404,10 +351,6 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
         {/* Social Links - dedupe by URL */}
         {(() => {
           const links = [...(token.socialLinks || [])];
-          // Inject client-fetched Noice builder X link
-          if (noiceXLink && !links.some(l => l.link === noiceXLink)) {
-            links.push({ name: 'x', link: noiceXLink });
-          }
           const seenUrls = new Set<string>();
           const uniqueLinks = links.filter(l => {
             if (!l.link || seenUrls.has(l.link)) return false;

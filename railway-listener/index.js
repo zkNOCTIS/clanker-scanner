@@ -25,53 +25,12 @@ setInterval(() => {
 
 // ---- WebSocket Server for direct browser push ----
 const WS_PORT = parseInt(process.env.PORT) || 3001;
-const server = http.createServer(async (req, res) => {
-  // CORS headers for all responses
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
-
+const server = http.createServer((req, res) => {
   if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok', clients: wsClients.size }));
     return;
   }
-
-  // Proxy Noice API — Railway infra bypasses Vercel challenge (unlike Vercel-to-Vercel)
-  const noiceMatch = req.url?.match(/^\/noice-project\/0x([a-fA-F0-9]{40})$/);
-  if (noiceMatch) {
-    const address = '0x' + noiceMatch[1];
-    try {
-      const apiRes = await fetch(
-        `https://noice.so/api/public/projectByAddress?address=${address}`,
-        {
-          signal: AbortSignal.timeout(8000),
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-origin',
-            'Referer': 'https://noice.so/',
-          },
-        }
-      );
-      if (!apiRes.ok) {
-        res.writeHead(apiRes.status, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: `Noice API ${apiRes.status}` }));
-        return;
-      }
-      const data = await apiRes.json();
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300' });
-      res.end(JSON.stringify(data));
-    } catch (e) {
-      res.writeHead(502, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: e.message }));
-    }
-    return;
-  }
-
   res.writeHead(404);
   res.end();
 });
@@ -643,42 +602,6 @@ async function processNoiceTx(tx, ipfsCid, t0, blockTimestamp) {
     });
 
     console.log(`✅ [Noice] ${name} ($${symbol}) — ${(performance.now() - t0).toFixed(0)}ms total (initial broadcast)`);
-
-    // Background: scrape Noice project page for builder X handles (API is 429-blocked)
-    if (noiceUrl) {
-      setTimeout(async () => {
-        try {
-          console.log(`   [Noice Scrape] Scraping ${noiceUrl} for X links...`);
-          twitterLink = await scrapeForTwitter(noiceUrl);
-          if (twitterLink) {
-            console.log(`   🔗 [Noice Scrape] Found X: ${twitterLink}`);
-            const enrichedLinks = [...socialLinks];
-            if (!enrichedLinks.some(l => l.link === twitterLink)) {
-              enrichedLinks.push({ name: 'x', link: twitterLink });
-            }
-            const buffered = recentTokens.find(t => t.contract_address.toLowerCase() === createdToken.toLowerCase());
-            if (buffered) {
-              buffered.twitter_link = twitterLink;
-              buffered.socialLinks = enrichedLinks;
-              buffered.social_context = {
-                interface: 'Noice',
-                platform: 'X',
-                messageId: twitterLink,
-              };
-              const msg = JSON.stringify({ type: 'update', token: buffered });
-              for (const ws of wsClients) {
-                if (ws.readyState === 1) ws.send(msg);
-              }
-              console.log(`   ✅ [Noice Scrape] Enriched ${symbol} with X link, re-broadcast to ${wsClients.size} clients`);
-            }
-          } else {
-            console.log(`   ⚠️ [Noice Scrape] No X link found on project page`);
-          }
-        } catch (e) {
-          console.log(`   ⚠️ [Noice Scrape] Failed: ${e.message}`);
-        }
-      }, 2000); // 2s delay for page to be ready
-    }
 
     console.log('\x1b[36m%s\x1b[0m', '----------------------------------------');
   } catch (e) {

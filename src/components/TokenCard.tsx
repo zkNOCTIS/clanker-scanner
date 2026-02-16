@@ -219,9 +219,9 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
             GMGN
           </a>
 
-          {isNoice && (
+          {isNoice && token.noice_url && (
             <a
-              href={`https://noice.so/api/public/projectByAddress?address=${token.contract_address}`}
+              href={token.noice_url}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1.5 text-[#14b8a6] font-mono text-sm font-bold bg-[#14b8a6]/10 border border-[#14b8a6]/30 hover:bg-[#14b8a6]/20 hover:border-[#14b8a6]/50 px-3 py-1.5 rounded transition-colors"
@@ -230,6 +230,16 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
                 <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
               </svg>
               BUILDER
+            </a>
+          )}
+          {isNoice && (
+            <a
+              href={`https://noice.so/api/public/projectByAddress?address=${token.contract_address}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 text-[#14b8a6]/60 font-mono text-xs hover:bg-[#14b8a6]/10 px-2 py-1 rounded transition-colors"
+            >
+              API
             </a>
           )}
 

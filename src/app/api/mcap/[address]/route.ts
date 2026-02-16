@@ -13,12 +13,17 @@ const RPC_URLS = [
 ];
 
 const STATEVIEW = "0xA3c0c9b65baD0b08107Aa264b0f3dB444b867A71";
-const POOL_CONFIGS = [
-  { hook: "0x3e342a06f9592459D75721d6956B570F02eF2Dc0", fee: 12000 },      // Bankr (X/Twitter)
-  { hook: "0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC", fee: 8388608 },   // Clanker AI (X/Twitter)
-  { hook: "0xd60D6B218116cFd801E28F78d011a203D2b068Cc", fee: 8388608 },   // Clanker (Farcaster)
+const WETH_POOL_CONFIGS = [
+  { hook: "0x3e342a06f9592459D75721d6956B570F02eF2Dc0", fee: 12000, tickSpacing: 200 },      // Bankr v1
+  { hook: "0xbb7784a4d481184283ed89619a3e3ed143e1adc0", fee: 8388608, tickSpacing: 200 },   // Bankr v2
+  { hook: "0xb429d62f8f3bFFb98CdB9569533eA23bF0Ba28CC", fee: 8388608, tickSpacing: 200 },   // Clanker AI (X/Twitter)
+  { hook: "0xd60D6B218116cFd801E28F78d011a203D2b068Cc", fee: 8388608, tickSpacing: 200 },   // Clanker (Farcaster)
+];
+const USDC_POOL_CONFIGS = [
+  { hook: "0xbb7784a4d481184283ed89619a3e3ed143e1adc0", fee: 8388608, tickSpacing: 60 },   // Noice (Bankr v2 hook)
 ];
 const WETH = "0x4200000000000000000000000000000000000006";
+const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const CHAINLINK_ETH_USD = "0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70";
 const SUPPLY = 100_000_000_000n;
 
@@ -68,18 +73,12 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
 // Function to calculate mcap using a specific RPC
 async function calculateMcapWithRpc(rpcUrl: string, tokenAddr: string): Promise<number> {
   const provider = new ethers.JsonRpcProvider(rpcUrl, undefined, {
-    staticNetwork: true, // Faster - don't fetch network on every request
+    staticNetwork: true,
   });
 
   const wethAddr = ethers.getAddress(WETH);
+  const usdcAddr = ethers.getAddress(USDC);
   const token = ethers.getAddress(tokenAddr);
-
-  // Sort addresses for pool ID calculation
-  const [token0, token1] = [wethAddr, token].sort((a, b) =>
-    BigInt(a) < BigInt(b) ? -1 : 1
-  );
-
-  // Try each pool config to find the right pool
   const abiCoder = ethers.AbiCoder.defaultAbiCoder();
   const stateViewContract = new ethers.Contract(
     ethers.getAddress(STATEVIEW),
@@ -87,11 +86,18 @@ async function calculateMcapWithRpc(rpcUrl: string, tokenAddr: string): Promise<
     provider
   );
 
+  // Try WETH pools first (most tokens)
+  const [wethToken0, wethToken1] = [wethAddr, token].sort((a, b) =>
+    BigInt(a) < BigInt(b) ? -1 : 1
+  );
+
   let sqrtPriceX96 = 0n;
-  for (const { hook, fee } of POOL_CONFIGS) {
+  let isUsdcPool = false;
+
+  for (const { hook, fee, tickSpacing } of WETH_POOL_CONFIGS) {
     const encoded = abiCoder.encode(
       ['address', 'address', 'uint24', 'int24', 'address'],
-      [token0, token1, fee, 200, ethers.getAddress(hook)]
+      [wethToken0, wethToken1, fee, tickSpacing, ethers.getAddress(hook)]
     );
     const poolId = ethers.keccak256(encoded);
     const poolData = await stateViewContract.getSlot0(poolId);
@@ -99,47 +105,82 @@ async function calculateMcapWithRpc(rpcUrl: string, tokenAddr: string): Promise<
     if (sqrtPriceX96 !== 0n) break;
   }
 
+  // If no WETH pool, try USDC pools (Noice/Doppler)
+  if (sqrtPriceX96 === 0n) {
+    const [usdcToken0, usdcToken1] = [usdcAddr, token].sort((a, b) =>
+      BigInt(a) < BigInt(b) ? -1 : 1
+    );
+
+    for (const { hook, fee, tickSpacing } of USDC_POOL_CONFIGS) {
+      const encoded = abiCoder.encode(
+        ['address', 'address', 'uint24', 'int24', 'address'],
+        [usdcToken0, usdcToken1, fee, tickSpacing, ethers.getAddress(hook)]
+      );
+      const poolId = ethers.keccak256(encoded);
+      const poolData = await stateViewContract.getSlot0(poolId);
+      sqrtPriceX96 = BigInt(poolData[0]);
+      if (sqrtPriceX96 !== 0n) {
+        isUsdcPool = true;
+        break;
+      }
+    }
+  }
+
   if (sqrtPriceX96 === 0n) {
     throw new Error('Pool not initialized');
   }
 
-  // Calculate price from sqrtPriceX96
   const Q96 = 2n ** 96n;
+
+  if (isUsdcPool) {
+    // USDC pool: token(18dec) paired with USDC(6dec) — price directly in USD
+    const [token0] = [usdcAddr, token].sort((a, b) =>
+      BigInt(a) < BigInt(b) ? -1 : 1
+    );
+
+    const SCALE = 10n ** 30n;
+    let mcapUsd: number;
+
+    if (token0 === usdcAddr) {
+      // sqrtPrice = sqrt(token_per_USDC) → invert for USDC per token
+      const numerator = Q96 * Q96 * (10n ** 12n) * SCALE;
+      const denominator = sqrtPriceX96 * sqrtPriceX96;
+      const priceScaled = numerator / denominator;
+      mcapUsd = (Number(priceScaled) * Number(SUPPLY)) / Number(SCALE);
+    } else {
+      // sqrtPrice = sqrt(USDC_per_token)
+      const numerator = sqrtPriceX96 * sqrtPriceX96 * (10n ** 12n) * SCALE;
+      const denominator = Q96 * Q96;
+      const priceScaled = numerator / denominator;
+      mcapUsd = (Number(priceScaled) * Number(SUPPLY)) / Number(SCALE);
+    }
+
+    console.log(`[${tokenAddr}] USDC pool mcap: $${Math.floor(mcapUsd).toLocaleString()}`);
+    return Math.floor(mcapUsd);
+  }
+
+  // WETH pool path
   const ONE_ETH = 10n ** 18n;
+  const priceWei = ((Q96 * ONE_ETH) / sqrtPriceX96) * Q96 / sqrtPriceX96;
 
-  let priceWei = ((Q96 * ONE_ETH) / sqrtPriceX96) * Q96 / sqrtPriceX96;
-  console.log(`[${tokenAddr}] priceWei:`, priceWei.toString());
-
-  // If WETH is token1, invert the price
   let finalPriceWei: bigint;
-  if (token0 === wethAddr) {
-    console.log(`[${tokenAddr}] WETH is token0, using priceWei as-is`);
+  if (wethToken0 === wethAddr) {
     finalPriceWei = priceWei;
   } else {
-    console.log(`[${tokenAddr}] WETH is token1, inverting price`);
     finalPriceWei = priceWei > 0n ? (ONE_ETH * ONE_ETH) / priceWei : 0n;
   }
-  console.log(`[${tokenAddr}] finalPriceWei:`, finalPriceWei.toString());
 
-  // Get ETH/USD price from Chainlink
   const chainlinkContract = new ethers.Contract(
     ethers.getAddress(CHAINLINK_ETH_USD),
     CHAINLINK_ABI,
     provider
   );
-
   const roundData = await chainlinkContract.latestRoundData();
   const ethPriceUsd = Number(roundData[1]) / 10 ** 8;
-  console.log(`[${tokenAddr}] ETH price:`, ethPriceUsd);
 
-  // Calculate market cap in ETH (using float division like Python to preserve precision)
   const mcapInEth = (Number(finalPriceWei) * Number(SUPPLY)) / 10 ** 18;
-  console.log(`[${tokenAddr}] mcapInEth:`, mcapInEth);
-
-  // Calculate final market cap in USD
   const mcapUsd = mcapInEth * ethPriceUsd;
-  console.log(`[${tokenAddr}] mcapUsd:`, mcapUsd);
-
+  console.log(`[${tokenAddr}] WETH pool mcap: $${Math.floor(mcapUsd).toLocaleString()}`);
   return Math.floor(mcapUsd);
 }
 

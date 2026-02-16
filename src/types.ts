@@ -51,8 +51,9 @@ export interface ClankerToken {
       }>;
     };
   };
-  factory_type?: "bankr" | "clanker" | "virtuals";
+  factory_type?: "bankr" | "clanker" | "virtuals" | "noice";
   virtuals_url?: string;
+  noice_url?: string;
   acp_stats?: {
     success_rate: number;
     jobs_completed: number;
@@ -163,8 +164,9 @@ const BLOCKED_FC_USERNAMES: string[] = [
 ];
 
 export function hasRealSocialContext(token: ClankerToken): boolean {
-  // Virtuals tokens are pre-filtered server-side (only ones with socials are broadcast)
+  // Virtuals and Noice tokens are pre-filtered server-side
   if (token.factory_type === "virtuals") return true;
+  if (token.factory_type === "noice") return true;
 
   // Railway format - check twitter_link directly
   if (token.twitter_link) {

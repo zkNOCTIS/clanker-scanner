@@ -158,6 +158,14 @@ function HomeContent() {
         } else if (msg.type === "token") {
           console.log(`[WS] New: ${msg.token.symbol}`);
           processTokens([msg.token]);
+        } else if (msg.type === "update") {
+          // Enriched data from background API (e.g. Noice builder X handles)
+          const updated = msg.token as ClankerToken;
+          const ca = updated.contract_address.toLowerCase();
+          console.log(`[WS] Update: ${updated.symbol} (enriched)`);
+          setTokens(prev => prev.map(t =>
+            t.contract_address.toLowerCase() === ca ? { ...t, ...updated } : t
+          ));
         }
       };
 
@@ -358,7 +366,7 @@ function HomeContent() {
                       onClick={() => {
                         document.getElementById(`token-${token.contract_address}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
                       }}
-                      className={`w-full px-3 py-2 flex items-center justify-between hover:brightness-125 transition-colors text-left border-l-2 ${token.factory_type === "virtuals" ? "border-[#00ff88]/50 bg-[#00ff88]/10" : (token.factory_type === "clanker" && token.farcaster_stats) ? "border-[#a855f7]/50 bg-[#a855f7]/10" : token.factory_type === "clanker" ? "border-[#f97316]/50 bg-[#f97316]/10" : "border-[#3b82f6]/50 bg-[#3b82f6]/10"}`}
+                      className={`w-full px-3 py-2 flex items-center justify-between hover:brightness-125 transition-colors text-left border-l-2 ${token.factory_type === "noice" ? "border-[#14b8a6]/50 bg-[#14b8a6]/10" : token.factory_type === "virtuals" ? "border-[#00ff88]/50 bg-[#00ff88]/10" : (token.factory_type === "clanker" && token.farcaster_stats) ? "border-[#a855f7]/50 bg-[#a855f7]/10" : token.factory_type === "clanker" ? "border-[#f97316]/50 bg-[#f97316]/10" : "border-[#3b82f6]/50 bg-[#3b82f6]/10"}`}
                     >
                       <div className="min-w-0">
                         <div className="font-mono text-sm truncate text-white">${token.symbol}</div>

@@ -37,6 +37,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
 
   const isClanker = token.factory_type === "clanker";
   const isVirtuals = token.factory_type === "virtuals";
+  const isNoice = token.factory_type === "noice";
   const isFarcaster = isClanker && !!token.farcaster_stats;
 
   // Clanker auto-buy: click arms it, fires BasedBot at 8.6s to land ~10s on chain
@@ -128,7 +129,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
   };
 
   return (
-    <div className={`rounded-sm overflow-hidden border border-[#30363d] ${isVirtuals ? "bg-[#0c1a0c]" : isFarcaster ? "bg-[#1a0c22]" : isClanker ? "bg-[#1c1408]" : "bg-[#0c1222]"}`}>
+    <div className={`rounded-sm overflow-hidden border border-[#30363d] ${isNoice ? "bg-[#0c1a1a]" : isVirtuals ? "bg-[#0c1a0c]" : isFarcaster ? "bg-[#1a0c22]" : isClanker ? "bg-[#1c1408]" : "bg-[#0c1222]"}`}>
       {/* Header */}
       <div className="p-4">
         <div className="flex items-start justify-between gap-4">
@@ -144,17 +145,20 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
                 {formatTimeAgo(token.created_at)}
               </span>
               {platform === "X" && (
-                <svg className={`w-4 h-4 ${isVirtuals ? "text-[#00ff88]" : isFarcaster ? "text-[#a855f7]" : isClanker ? "text-[#f97316]" : "text-[#00d9ff]"}`} viewBox="0 0 24 24" fill="currentColor">
+                <svg className={`w-4 h-4 ${isNoice ? "text-[#14b8a6]" : isVirtuals ? "text-[#00ff88]" : isFarcaster ? "text-[#a855f7]" : isClanker ? "text-[#f97316]" : "text-[#00d9ff]"}`} viewBox="0 0 24 24" fill="currentColor">
                   <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
                 </svg>
               )}
               {platform === "FARCASTER" && (
                 <span className="text-purple-400 font-mono text-sm">FC</span>
               )}
+              {isNoice && platform !== "X" && (
+                <span className="text-[#14b8a6] font-mono text-xs font-bold">NOICE</span>
+              )}
             </div>
-            <h2 className={`text-2xl font-mono font-bold truncate ${isVirtuals ? "text-[#00ff88]" : isFarcaster ? "text-[#a855f7]" : isClanker ? "text-[#f97316]" : "text-[#00d9ff]"}`}>{token.name}</h2>
+            <h2 className={`text-2xl font-mono font-bold truncate ${isNoice ? "text-[#14b8a6]" : isVirtuals ? "text-[#00ff88]" : isFarcaster ? "text-[#a855f7]" : isClanker ? "text-[#f97316]" : "text-[#00d9ff]"}`}>{token.name}</h2>
             <div className="flex items-center gap-3">
-              <p className={`text-lg font-mono ${isVirtuals ? "text-[#00ff88]" : isFarcaster ? "text-[#a855f7]" : isClanker ? "text-[#f97316]" : "text-[#00ff88]"}`}>${token.symbol}</p>
+              <p className={`text-lg font-mono ${isNoice ? "text-[#14b8a6]" : isVirtuals ? "text-[#00ff88]" : isFarcaster ? "text-[#a855f7]" : isClanker ? "text-[#f97316]" : "text-[#00ff88]"}`}>${token.symbol}</p>
               {mcap !== null && (
                 <span className={`text-lg font-mono font-bold ${mcap >= 30000 ? 'text-[#00ff88]' : 'text-yellow-400'}`}>
                   MC: ${mcap >= 1000000 ? (mcap / 1000000).toFixed(1) + 'M' : mcap >= 1000 ? (mcap / 1000).toFixed(1) + 'K' : mcap.toFixed(0)}
@@ -170,18 +174,18 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
                 href={`https://x.com/${twitterStats.replied_to_username}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className={`flex flex-col items-center justify-center gap-2 px-6 py-4 border-2 rounded-lg transition-all min-w-[200px] ${isVirtuals ? "bg-green-500/10 border-green-500/30 hover:bg-green-500/20 hover:border-green-500/50" : isFarcaster ? "bg-purple-500/10 border-purple-500/30 hover:bg-purple-500/20 hover:border-purple-500/50" : isClanker ? "bg-orange-500/10 border-orange-500/30 hover:bg-orange-500/20 hover:border-orange-500/50" : "bg-blue-500/10 border-blue-500/30 hover:bg-blue-500/20 hover:border-blue-500/50"}`}
+                className={`flex flex-col items-center justify-center gap-2 px-6 py-4 border-2 rounded-lg transition-all min-w-[200px] ${isNoice ? "bg-teal-500/10 border-teal-500/30 hover:bg-teal-500/20 hover:border-teal-500/50" : isVirtuals ? "bg-green-500/10 border-green-500/30 hover:bg-green-500/20 hover:border-green-500/50" : isFarcaster ? "bg-purple-500/10 border-purple-500/30 hover:bg-purple-500/20 hover:border-purple-500/50" : isClanker ? "bg-orange-500/10 border-orange-500/30 hover:bg-orange-500/20 hover:border-orange-500/50" : "bg-blue-500/10 border-blue-500/30 hover:bg-blue-500/20 hover:border-blue-500/50"}`}
               >
                 <div className="flex items-center gap-2">
-                  <svg className={`w-5 h-5 ${isVirtuals ? "text-green-400" : isFarcaster ? "text-purple-400" : isClanker ? "text-orange-400" : "text-blue-400"}`} fill="currentColor" viewBox="0 0 24 24">
+                  <svg className={`w-5 h-5 ${isNoice ? "text-teal-400" : isVirtuals ? "text-green-400" : isFarcaster ? "text-purple-400" : isClanker ? "text-orange-400" : "text-blue-400"}`} fill="currentColor" viewBox="0 0 24 24">
                     <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                   </svg>
-                  <span className={`text-xl font-mono font-bold ${isVirtuals ? "text-green-400" : isFarcaster ? "text-purple-400" : isClanker ? "text-orange-400" : "text-blue-400"}`}>
+                  <span className={`text-xl font-mono font-bold ${isNoice ? "text-teal-400" : isVirtuals ? "text-green-400" : isFarcaster ? "text-purple-400" : isClanker ? "text-orange-400" : "text-blue-400"}`}>
                     {twitterStats.replied_to_followers_text}
                   </span>
                 </div>
-                <p className={`text-xs font-mono ${isVirtuals ? "text-green-300" : isFarcaster ? "text-purple-300" : isClanker ? "text-orange-300" : "text-blue-300"}`}>Smart Followers</p>
-                <p className={`text-xs font-mono ${isVirtuals ? "text-green-300" : isFarcaster ? "text-purple-300" : isClanker ? "text-orange-300" : "text-blue-300"}`}>
+                <p className={`text-xs font-mono ${isNoice ? "text-teal-300" : isVirtuals ? "text-green-300" : isFarcaster ? "text-purple-300" : isClanker ? "text-orange-300" : "text-blue-300"}`}>Smart Followers</p>
+                <p className={`text-xs font-mono ${isNoice ? "text-teal-300" : isVirtuals ? "text-green-300" : isFarcaster ? "text-purple-300" : isClanker ? "text-orange-300" : "text-blue-300"}`}>
                   Reply to @{twitterStats.replied_to_username}
                 </p>
               </a>
@@ -193,7 +197,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
         <div className="mt-4 flex flex-wrap items-center gap-4">
           <button
             onClick={copyCA}
-            className={`flex items-center gap-1 font-mono text-xs px-2 py-1 rounded transition-colors ${isVirtuals ? "text-[#00ff88] hover:bg-[#00ff88]/10" : isFarcaster ? "text-[#a855f7] hover:bg-[#a855f7]/10" : isClanker ? "text-[#f97316] hover:bg-[#f97316]/10" : "text-[#00d9ff] hover:bg-[#00d9ff]/10"}`}
+            className={`flex items-center gap-1 font-mono text-xs px-2 py-1 rounded transition-colors ${isNoice ? "text-[#14b8a6] hover:bg-[#14b8a6]/10" : isVirtuals ? "text-[#00ff88] hover:bg-[#00ff88]/10" : isFarcaster ? "text-[#a855f7] hover:bg-[#a855f7]/10" : isClanker ? "text-[#f97316] hover:bg-[#f97316]/10" : "text-[#00d9ff] hover:bg-[#00d9ff]/10"}`}
           >
             <span className="text-gray-500">CA:</span>
             {token.contract_address.slice(0, 10)}...{token.contract_address.slice(-6)}
@@ -214,6 +218,20 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
             </svg>
             GMGN
           </a>
+
+          {isNoice && token.noice_url && (
+            <a
+              href={token.noice_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 text-[#14b8a6] font-mono text-xs hover:bg-[#14b8a6]/10 px-2 py-1 rounded transition-colors"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+              </svg>
+              Noice
+            </a>
+          )}
 
           {token.msg_sender && (
             <a
@@ -271,16 +289,16 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
         )}
 
         {!isVirtuals && (() => {
-          const FEE_DURATION = isClanker ? 15 : 10;
-          const FEE_START = isClanker ? 66.7 : 80;
-          const FEE_END = isClanker ? 4.2 : 1.2;
+          const FEE_DURATION = isNoice ? 30 : isClanker ? 15 : 10;
+          const FEE_START = isNoice ? 80 : isClanker ? 66.7 : 80;
+          const FEE_END = isNoice ? 2 : isClanker ? 4.2 : 1.2;
           const BOT_FLIGHT = 1.4; // BasedBot avg click-to-chain (confirmed: 8.6s open → 10s on chain)
           const elapsed = (Date.now() - new Date(token.created_at).getTime()) / 1000;
           const landingTime = elapsed + BOT_FLIGHT;
           const feeRemaining = Math.max(0, FEE_DURATION - landingTime);
           const hasFee = feeRemaining > 0;
           const feePercent = hasFee
-            ? Math.round(FEE_END + (FEE_START - FEE_END) * (isClanker ? Math.pow(feeRemaining / FEE_DURATION, 2) : feeRemaining / FEE_DURATION))
+            ? Math.round(FEE_END + (FEE_START - FEE_END) * (isClanker ? Math.pow(feeRemaining / FEE_DURATION, 2) : (feeRemaining / FEE_DURATION)))
             : 0;
           const feeColor = feePercent > 40 ? "#ff4444" : feePercent > 20 ? "#ff8800" : feePercent > 10 ? "#ffcc00" : "#00ff88";
           const landingSecond = Math.min(FEE_DURATION, Math.ceil(elapsed + BOT_FLIGHT));

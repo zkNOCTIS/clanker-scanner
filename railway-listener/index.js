@@ -158,6 +158,9 @@ async function lookupFarcasterCast(castHash) {
 const VIRTUALS_FACTORY = '0xa31bd6a0edbc4da307b8fa92bd6cf39e0fae262c'; // lowercased
 const VIRTUALS_PRELAUNCH_EVENT = '0xac073481b1bc4233bf4afdfbb03f87ea97b0bb2c0305808d5614c824afb4e8b0';
 
+// ---- Noice (Doppler Protocol) ----
+const NOICE_DEPLOYER = '0xe8d333d606d29e89ed4364c1ee0de4a694ad9cd1'; // smart account (executeBatch)
+
 // Whitelist of legitimate Clanker deployer addresses (lowercase)
 const WHITELISTED_DEPLOYERS = new Set([
   '0x2112b8456ac07c15fa31ddf3bf713e77716ff3f9',
@@ -498,10 +501,192 @@ async function processVirtualsTx(tx, receipt, t0, blockTimestamp) {
   }
 }
 
+// Fetch builder data from Noice public API (with retry for indexing delay)
+async function fetchNoiceProject(tokenAddress) {
+  const retryDelays = [3000, 10000, 30000]; // 3s, 10s, 30s
+  for (let attempt = 0; attempt < retryDelays.length; attempt++) {
+    try {
+      await new Promise(r => setTimeout(r, retryDelays[attempt]));
+      console.log(`   [Noice API] Attempt ${attempt + 1}/${retryDelays.length} for ${tokenAddress.slice(0, 10)}...`);
+      const res = await fetch(
+        `https://noice.so/api/public/projectByAddress?address=${tokenAddress}`,
+        { signal: AbortSignal.timeout(5000), headers: { 'User-Agent': 'Mozilla/5.0' } }
+      );
+      if (!res.ok) {
+        console.log(`   ⚠️ Noice API returned ${res.status}`);
+        continue;
+      }
+      const data = await res.json();
+      if (data && data.builders) return data;
+    } catch (e) {
+      console.log(`   ⚠️ Noice API attempt ${attempt + 1} failed: ${e.message}`);
+    }
+  }
+  return null;
+}
+
+// Scrape a website for X/Twitter links (best-effort, short timeout)
+async function scrapeForTwitter(url) {
+  try {
+    if (!url) return null;
+    // Normalize URL
+    if (!url.startsWith('http')) url = `https://${url}`;
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(3000),
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      redirect: 'follow',
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    // Look for X/Twitter links in HTML (href, content, etc.)
+    const patterns = [
+      /https?:\/\/(?:www\.)?(?:twitter\.com|x\.com)\/([a-zA-Z0-9_]{1,15})(?:\/|\?|"|'|\s|$)/g,
+    ];
+    for (const regex of patterns) {
+      const match = regex.exec(html);
+      if (match && match[1]) {
+        const username = match[1].toLowerCase();
+        // Skip generic Twitter pages
+        const skip = ['home', 'explore', 'search', 'intent', 'share', 'hashtag', 'i', 'settings', 'notifications', 'messages'];
+        if (!skip.includes(username)) {
+          return `https://x.com/${match[1]}`;
+        }
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// Process a Noice (Doppler) deploy — IPFS metadata + optional website scrape for X links
+async function processNoiceTx(tx, ipfsCid, t0, blockTimestamp) {
+  try {
+    const tFetch = performance.now();
+
+    // PARALLEL: receipt + IPFS at the same time
+    const [receipt, ipfsResult] = await Promise.all([
+      provider.send('eth_getTransactionReceipt', [tx.hash]),
+      fetchIpfsMetadata(ipfsCid).catch(() => null)
+    ]);
+
+    const tDone = performance.now();
+    const createdToken = extractTokenAddress(receipt);
+
+    if (!createdToken) {
+      console.log('⚠️ [Noice] No token address in logs. Skipping.');
+      return;
+    }
+
+    const name = ipfsResult?.data?.name || 'Unknown';
+    const symbol = ipfsResult?.data?.symbol || '???';
+    const noiceUrl = ipfsResult?.data?.noice || null;
+    const websiteRaw = ipfsResult?.data?.website || null;
+    const imageIpfs = ipfsResult?.data?.image || null;
+    const gatewayBase = ipfsResult?.gatewayBase || 'https://ipfs.io/ipfs/';
+    const imageUrl = imageIpfs ? imageIpfs.replace('ipfs://', gatewayBase) : null;
+
+    console.log(`🎵 [Noice] ${name} ($${symbol}) — ${createdToken}`);
+    console.log(`   IPFS:   ipfs://${ipfsCid}`);
+    console.log(`   Tx:     https://basescan.org/tx/${tx.hash}`);
+    if (noiceUrl) console.log(`   Noice:  ${noiceUrl}`);
+    if (websiteRaw) console.log(`   Website: ${websiteRaw}`);
+    console.log(`   ⏱️  Receipt+IPFS: ${(tDone - tFetch).toFixed(0)}ms`);
+
+    // Broadcast immediately with IPFS data, then enrich with Noice API in background
+    let twitterLink = null;
+    const socialLinks = [];
+    if (websiteRaw) {
+      const websiteUrl = websiteRaw.startsWith('http') ? websiteRaw : `https://${websiteRaw}`;
+      socialLinks.push({ name: 'website', link: websiteUrl });
+    }
+    if (noiceUrl) socialLinks.push({ name: 'noice', link: noiceUrl });
+
+    // First broadcast: immediate (no API delay)
+    broadcastToken({
+      contract_address: createdToken,
+      name,
+      symbol,
+      ipfs_cid: ipfsCid,
+      tx_hash: tx.hash,
+      created_at: blockTimestamp,
+      creator_address: tx.from,
+      image_url: imageUrl,
+      description: null,
+      twitter_link: null,
+      website_link: websiteRaw ? (websiteRaw.startsWith('http') ? websiteRaw : `https://${websiteRaw}`) : null,
+      noice_url: noiceUrl,
+      factory_type: 'noice',
+      socialLinks,
+      social_context: {
+        interface: 'Noice',
+        platform: 'Noice',
+        messageId: noiceUrl || '',
+      },
+    });
+
+    console.log(`✅ [Noice] ${name} ($${symbol}) — ${(performance.now() - t0).toFixed(0)}ms total (initial broadcast)`);
+
+    // Background: fetch Noice API for builder X handles (3s delay for indexing)
+    fetchNoiceProject(createdToken).then(project => {
+      if (!project) return;
+
+      // Extract builder X URLs
+      const builders = project.builders || [];
+      const builderXUrls = builders
+        .filter(b => b.url && (b.url.includes('x.com') || b.url.includes('twitter.com')))
+        .map(b => b.url);
+
+      // Extract socials from API
+      const apiSocials = project.socials || [];
+
+      // Use first builder X URL as twitter_link
+      twitterLink = builderXUrls[0] || null;
+
+      if (twitterLink || builderXUrls.length > 0 || apiSocials.length > 0) {
+        console.log(`   🔗 [Noice API] Builders: ${builders.map(b => b.name).join(', ')}`);
+        if (twitterLink) console.log(`   🔗 [Noice API] X: ${twitterLink}`);
+
+        // Build enriched social links
+        const enrichedLinks = [...socialLinks];
+        for (const xUrl of builderXUrls) {
+          if (!enrichedLinks.some(l => l.link === xUrl)) {
+            enrichedLinks.push({ name: 'x', link: xUrl });
+          }
+        }
+
+        // Update the token in the buffer with enriched data
+        const buffered = recentTokens.find(t => t.contract_address.toLowerCase() === createdToken.toLowerCase());
+        if (buffered) {
+          buffered.twitter_link = twitterLink;
+          buffered.socialLinks = enrichedLinks;
+          buffered.social_context = {
+            interface: 'Noice',
+            platform: twitterLink ? 'X' : 'Noice',
+            messageId: twitterLink || noiceUrl || '',
+          };
+          // Re-broadcast updated token to connected clients
+          const msg = JSON.stringify({ type: 'update', token: buffered });
+          for (const ws of wsClients) {
+            if (ws.readyState === 1) ws.send(msg);
+          }
+          console.log(`   ✅ [Noice API] Enriched ${symbol} with builder data, re-broadcast to ${wsClients.size} clients`);
+        }
+      }
+    }).catch(e => {
+      console.log(`   ⚠️ [Noice API] Background enrichment failed: ${e.message}`);
+    });
+
+    console.log('\x1b[36m%s\x1b[0m', '----------------------------------------');
+  } catch (e) {
+    console.error('[Noice] Error processing tx:', e.message);
+  }
+}
+
 async function startListener() {
   try {
     const currentUrl = WSS_URLS[currentUrlIndex];
-    console.log('Starting Aggressive BankrFindr + Clanker AI + Virtuals Monitor...');
+    console.log('Starting Aggressive BankrFindr + Clanker AI + Virtuals + Noice Monitor...');
     console.log(`WSS URL: ${currentUrl}`);
 
     provider = new ethers.WebSocketProvider(currentUrl);
@@ -520,14 +705,16 @@ async function startListener() {
         // Use actual block timestamp for created_at (not server time which adds pipeline delay)
         const blockTimestamp = new Date(parseInt(block.timestamp, 16) * 1000).toISOString();
 
-        // Find Bankr matches (calldata), Clanker AI matches (tx.to), and Virtuals matches (tx.to)
+        // Find Bankr matches (calldata), Clanker AI matches (tx.to), Virtuals matches (tx.to), Noice matches (tx.from)
         const bankrMatches = [];
         const clankerAiTxs = [];
         const virtualsTxs = [];
+        const noiceTxs = [];
         for (const tx of block.transactions) {
           const data = tx.input || tx.data || '';
-          // Bankr: match calldata selector + IPFS prefix
-          if (data.includes(TARGET_SELECTOR) && data.includes(IPFS_PREFIX_HEX)) {
+          const from = tx.from ? tx.from.toLowerCase() : '';
+          // Bankr: match calldata selector + IPFS prefix (but NOT from Noice deployer)
+          if (data.includes(TARGET_SELECTOR) && data.includes(IPFS_PREFIX_HEX) && from !== NOICE_DEPLOYER) {
             const ipfsCid = extractIpfsCid(data);
             if (ipfsCid) bankrMatches.push({ tx, data, ipfsCid });
           }
@@ -539,12 +726,17 @@ async function startListener() {
           if (tx.to && tx.to.toLowerCase() === VIRTUALS_FACTORY && data.startsWith('0x5421575e')) {
             virtualsTxs.push(tx);
           }
+          // Noice: match tx.from === deployer smart account + IPFS in calldata
+          if (from === NOICE_DEPLOYER && data.includes(IPFS_PREFIX_HEX)) {
+            const ipfsCid = extractIpfsCid(data);
+            if (ipfsCid) noiceTxs.push({ tx, ipfsCid });
+          }
         }
 
-        if (bankrMatches.length === 0 && clankerAiTxs.length === 0 && virtualsTxs.length === 0) return;
+        if (bankrMatches.length === 0 && clankerAiTxs.length === 0 && virtualsTxs.length === 0 && noiceTxs.length === 0) return;
 
-        const totalMatches = bankrMatches.length + clankerAiTxs.length + virtualsTxs.length;
-        console.log(`\n⚡ Block ${blockNumber}: ${totalMatches} deploy(s) found [Bankr: ${bankrMatches.length}, Clanker: ${clankerAiTxs.length}, Virtuals: ${virtualsTxs.length}] (block fetch: ${(tBlock - t0).toFixed(0)}ms)`);
+        const totalMatches = bankrMatches.length + clankerAiTxs.length + virtualsTxs.length + noiceTxs.length;
+        console.log(`\n⚡ Block ${blockNumber}: ${totalMatches} deploy(s) found [Bankr: ${bankrMatches.length}, Clanker: ${clankerAiTxs.length}, Virtuals: ${virtualsTxs.length}, Noice: ${noiceTxs.length}] (block fetch: ${(tBlock - t0).toFixed(0)}ms)`);
 
         // Process all matching txs in parallel
         const allPromises = [];
@@ -564,6 +756,14 @@ async function startListener() {
             provider.send('eth_getTransactionReceipt', [tx.hash])
               .then(receipt => processVirtualsTx(tx, receipt, t0, blockTimestamp))
               .catch(e => console.error('[Virtuals] Receipt fetch failed:', e.message))
+          );
+        }
+
+        // Noice txs — IPFS metadata + website scrape for X links
+        for (const { tx, ipfsCid } of noiceTxs) {
+          allPromises.push(
+            processNoiceTx(tx, ipfsCid, t0, blockTimestamp)
+              .catch(e => console.error('[Noice] Processing failed:', e.message))
           );
         }
 
@@ -729,5 +929,5 @@ WSS_URLS.forEach((url, i) => {
   console.log(`   ${i === 0 ? 'Primary' : 'Backup'}: ${url}`);
 });
 
-console.log('🎯 Bankr + Clanker AI + Virtuals Token Scanner Starting...\n');
+console.log('🎯 Bankr + Clanker AI + Virtuals + Noice Token Scanner Starting...\n');
 startListener();

@@ -219,17 +219,17 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
             GMGN
           </a>
 
-          {isNoice && token.noice_url && (
+          {isNoice && (
             <a
-              href={token.noice_url}
+              href={`https://noice.so/api/public/projectByAddress?address=${token.contract_address}`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1.5 text-[#14b8a6] font-mono text-sm font-bold bg-[#14b8a6]/10 border border-[#14b8a6]/30 hover:bg-[#14b8a6]/20 hover:border-[#14b8a6]/50 px-3 py-1.5 rounded transition-colors"
             >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
               </svg>
-              VIEW BUILDER
+              BUILDER
             </a>
           )}
 

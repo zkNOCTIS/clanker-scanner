@@ -76,10 +76,13 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
     const ac = new AbortController();
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(
-          `/api/noice-project/${token.contract_address}`,
-          { signal: ac.signal }
-        );
+        // Use Railway proxy (different infra than Vercel — may bypass Noice's bot protection)
+        const wsUrl = process.env.NEXT_PUBLIC_WS_URL || '';
+        const railwayHost = wsUrl.replace(/^wss?:\/\//, '');
+        const proxyUrl = railwayHost
+          ? `https://${railwayHost}/noice-project/${token.contract_address}`
+          : `/api/noice-project/${token.contract_address}`;
+        const res = await fetch(proxyUrl, { signal: ac.signal });
         if (!res.ok) return;
         const data = await res.json();
         const builders = data?.builders || [];

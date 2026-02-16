@@ -25,12 +25,53 @@ setInterval(() => {
 
 // ---- WebSocket Server for direct browser push ----
 const WS_PORT = parseInt(process.env.PORT) || 3001;
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
+  // CORS headers for all responses
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+
   if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok', clients: wsClients.size }));
     return;
   }
+
+  // Proxy Noice API — Railway infra bypasses Vercel challenge (unlike Vercel-to-Vercel)
+  const noiceMatch = req.url?.match(/^\/noice-project\/0x([a-fA-F0-9]{40})$/);
+  if (noiceMatch) {
+    const address = '0x' + noiceMatch[1];
+    try {
+      const apiRes = await fetch(
+        `https://noice.so/api/public/projectByAddress?address=${address}`,
+        {
+          signal: AbortSignal.timeout(8000),
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+            'Referer': 'https://noice.so/',
+          },
+        }
+      );
+      if (!apiRes.ok) {
+        res.writeHead(apiRes.status, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `Noice API ${apiRes.status}` }));
+        return;
+      }
+      const data = await apiRes.json();
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300' });
+      res.end(JSON.stringify(data));
+    } catch (e) {
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
   res.writeHead(404);
   res.end();
 });

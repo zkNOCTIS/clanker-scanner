@@ -77,7 +77,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
     const timer = setTimeout(async () => {
       try {
         const res = await fetch(
-          `https://noice.so/api/public/projectByAddress?address=${token.contract_address}`,
+          `/api/noice-project/${token.contract_address}`,
           { signal: ac.signal }
         );
         if (!res.ok) return;

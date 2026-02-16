@@ -69,11 +69,40 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
   }, [autoBuyArmed, autoBuyFired, token.contract_address, token.created_at]);
 
 
+  // Client-side Noice builder enrichment (browser can pass Vercel challenge, servers can't)
+  const [noiceXLink, setNoiceXLink] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isNoice || token.twitter_link || noiceXLink) return;
+    const ac = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `https://noice.so/api/public/projectByAddress?address=${token.contract_address}`,
+          { signal: ac.signal }
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        const builders = data?.builders || [];
+        const xUrl = builders
+          .map((b: { url?: string }) => b.url)
+          .find((u: string | undefined) => u && (u.includes('x.com') || u.includes('twitter.com')));
+        if (xUrl) {
+          setNoiceXLink(xUrl);
+          // Also patch the token object so WebSocket updates preserve it
+          token.twitter_link = xUrl;
+        }
+      } catch {
+        // CORS or network error — silently fail
+      }
+    }, 2000);
+    return () => { clearTimeout(timer); ac.abort(); };
+  }, [isNoice, token.contract_address, token.twitter_link, noiceXLink]);
+
   const tweetUrl = getTweetUrl(token);
   const castUrl = getCastUrl(token);
 
   // Detect platform from Railway format (twitter_link) or old format (social_context.platform)
-  const hasTwitter = !!tweetUrl;
+  const hasTwitter = !!tweetUrl || !!noiceXLink;
   const hasFarcaster = !!castUrl;
   const platform = hasTwitter ? "X" : hasFarcaster ? "FARCASTER" : (token.social_context?.platform?.toUpperCase() || "UNKNOWN");
 
@@ -350,7 +379,11 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
 
         {/* Social Links - dedupe by URL */}
         {(() => {
-          const links = token.socialLinks || [];
+          const links = [...(token.socialLinks || [])];
+          // Inject client-fetched Noice builder X link
+          if (noiceXLink && !links.some(l => l.link === noiceXLink)) {
+            links.push({ name: 'x', link: noiceXLink });
+          }
           const seenUrls = new Set<string>();
           const uniqueLinks = links.filter(l => {
             if (!l.link || seenUrls.has(l.link)) return false;

@@ -35,6 +35,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
     return () => clearInterval(interval);
   }, []);
 
+  const isBankr = token.factory_type === "bankr";
   const isClanker = token.factory_type === "clanker";
   const isVirtuals = token.factory_type === "virtuals";
   const isNoice = token.factory_type === "noice";
@@ -194,7 +195,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
         </div>
 
         {/* Launcher & Fee Recipient — Bankr tokens */}
-        {token.factory_type === "bankr" && (() => {
+        {isBankr && (() => {
           const feeRecips = token.extensions?.fees?.recipients;
           const launcherAddr = token.deployer?.walletAddress || feeRecips?.[0]?.admin || null;
           const launcherUsername = token.deployer?.xUsername || null;
@@ -289,7 +290,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
             </a>
           )}
 
-          {token.msg_sender && token.factory_type !== "bankr" && (
+          {token.msg_sender && !isBankr && (
             <a
               href={`https://basescan.org/address/${token.msg_sender}`}
               target="_blank"
@@ -470,8 +471,8 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
         </div>
       )}
 
-      {/* Metadata JSON box - for tokens without tweet/cast (InstaClaw, Basenames, terminal etc.) */}
-      {!isVirtuals && !tweetId && !castUrl && (token.description || token.social_context?.interface) && (
+      {/* Metadata JSON box - for tokens without tweet/cast (InstaClaw, Basenames, terminal etc.) — skip Bankr/Virtuals */}
+      {!isVirtuals && !isBankr && !tweetId && !castUrl && (token.description || token.social_context?.interface) && (
         <div className="border-t border-[#30363d] p-3">
           <pre className="font-mono text-xs text-gray-400 bg-[#0d1117] border border-[#30363d] rounded p-3 overflow-x-auto whitespace-pre-wrap">
             {JSON.stringify({

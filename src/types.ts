@@ -51,6 +51,16 @@ export interface ClankerToken {
       }>;
     };
   };
+  deployer?: {
+    walletAddress: string;
+    xUsername?: string | null;
+    xProfileImageUrl?: string | null;
+  } | null;
+  feeRecipient?: {
+    walletAddress: string;
+    xUsername?: string | null;
+    xProfileImageUrl?: string | null;
+  } | null;
   factory_type?: "bankr" | "clanker" | "virtuals" | "noice";
   virtuals_url?: string;
   noice_url?: string;
@@ -167,6 +177,9 @@ export function hasRealSocialContext(token: ClankerToken): boolean {
   // Virtuals and Noice tokens are pre-filtered server-side
   if (token.factory_type === "virtuals") return true;
   if (token.factory_type === "noice") return true;
+
+  // Bankr tokens are pre-filtered server-side (all on-chain deploys are legit)
+  if (token.factory_type === "bankr") return true;
 
   // Railway format - check twitter_link directly
   if (token.twitter_link) {

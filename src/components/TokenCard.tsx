@@ -193,6 +193,52 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
           </div>
         </div>
 
+        {/* Launcher & Fee Recipient — Bankr tokens */}
+        {token.factory_type === "bankr" && (() => {
+          const feeRecips = token.extensions?.fees?.recipients;
+          const launcherAddr = token.deployer?.walletAddress || feeRecips?.[0]?.admin || null;
+          const launcherUsername = token.deployer?.xUsername || null;
+          const launcherPfp = token.deployer?.xProfileImageUrl || null;
+          const feeAddr = token.feeRecipient?.walletAddress || feeRecips?.[0]?.recipient || null;
+          const feeUsername = token.feeRecipient?.xUsername || null;
+          const feePfp = token.feeRecipient?.xProfileImageUrl || null;
+
+          if (!launcherAddr && !feeAddr) return null;
+
+          return (
+            <div className="mt-3 flex flex-col gap-1.5 font-mono text-xs">
+              {launcherAddr && (
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-500 w-[72px] shrink-0">LAUNCHER</span>
+                  <a
+                    href={launcherUsername ? `https://x.com/${launcherUsername}` : `https://basescan.org/address/${launcherAddr}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 text-[#00d9ff] hover:underline"
+                  >
+                    {launcherPfp && <img src={launcherPfp} alt="" className="w-4 h-4 rounded-full" />}
+                    {launcherUsername ? `@${launcherUsername}` : `${launcherAddr.slice(0, 6)}...${launcherAddr.slice(-4)}`}
+                  </a>
+                </div>
+              )}
+              {feeAddr && (
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-500 w-[72px] shrink-0">FEE TO</span>
+                  <a
+                    href={feeUsername ? `https://x.com/${feeUsername}` : `https://basescan.org/address/${feeAddr}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 text-[#00d9ff] hover:underline"
+                  >
+                    {feePfp && <img src={feePfp} alt="" className="w-4 h-4 rounded-full" />}
+                    {feeUsername ? `@${feeUsername}` : `${feeAddr.slice(0, 6)}...${feeAddr.slice(-4)}`}
+                  </a>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
         {/* CA & Links row */}
         <div className="mt-4 flex flex-wrap items-center gap-4">
           <button
@@ -243,7 +289,7 @@ export function TokenCard({ token, isLatest, onTweetDeleted, shouldFetchStats = 
             </a>
           )}
 
-          {token.msg_sender && (
+          {token.msg_sender && token.factory_type !== "bankr" && (
             <a
               href={`https://basescan.org/address/${token.msg_sender}`}
               target="_blank"

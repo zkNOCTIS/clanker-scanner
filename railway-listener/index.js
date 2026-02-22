@@ -80,6 +80,58 @@ function broadcastToken(tokenData) {
   console.log(`[WS] Broadcasted ${tokenData.symbol || 'Unknown'} to ${wsClients.size} clients (buffer: ${recentTokens.length})`);
 }
 
+// Send an update for an existing token (e.g., enriched deployer/fee data)
+function broadcastTokenUpdate(contractAddress, updates) {
+  const ca = contractAddress.toLowerCase();
+  // Update in-memory buffer
+  const existing = recentTokens.find(t => t.contract_address.toLowerCase() === ca);
+  if (existing) Object.assign(existing, updates);
+
+  const msg = JSON.stringify({ type: 'token_update', contract_address: contractAddress, updates });
+  for (const ws of wsClients) {
+    if (ws.readyState === 1) ws.send(msg);
+  }
+  console.log(`[WS] Update for ${contractAddress.slice(0, 10)}... sent to ${wsClients.size} clients`);
+}
+
+// Bankr API enrichment — fetch deployer + feeRecipient with resolved X usernames
+let bankrLaunchesCache = { data: [], fetchedAt: 0 };
+
+async function enrichBankrToken(contractAddress) {
+  try {
+    // Cache Bankr launches for 30s to avoid hammering their API
+    const now = Date.now();
+    if (now - bankrLaunchesCache.fetchedAt > 30_000 || bankrLaunchesCache.data.length === 0) {
+      const res = await fetch('https://bankr.bot/api/token-launches', {
+        signal: AbortSignal.timeout(5000),
+        headers: { 'User-Agent': 'Mozilla/5.0' }
+      });
+      if (res.ok) {
+        const json = await res.json();
+        bankrLaunchesCache = { data: json.launches || [], fetchedAt: now };
+      }
+    }
+
+    const launch = bankrLaunchesCache.data.find(
+      l => l.tokenAddress?.toLowerCase() === contractAddress.toLowerCase()
+    );
+    if (!launch) return;
+
+    const updates = {};
+    if (launch.deployer) updates.deployer = launch.deployer;
+    if (launch.feeRecipient) updates.feeRecipient = launch.feeRecipient;
+
+    if (Object.keys(updates).length > 0) {
+      broadcastTokenUpdate(contractAddress, updates);
+      const dUser = launch.deployer?.xUsername;
+      const fUser = launch.feeRecipient?.xUsername;
+      console.log(`   🏷️  Bankr enriched: launcher=${dUser || launch.deployer?.walletAddress?.slice(0,10)}, fee_to=${fUser || launch.feeRecipient?.walletAddress?.slice(0,10)}`);
+    }
+  } catch (e) {
+    console.log(`⚠️ Bankr enrichment failed: ${e.message}`);
+  }
+}
+
 server.listen(WS_PORT, () => {
   console.log(`🌐 WebSocket server listening on port ${WS_PORT}`);
 });
@@ -295,6 +347,7 @@ async function processClankerAiTx(tx, receipt, t0, blockTimestamp) {
         tx_hash: tx.hash,
         created_at: blockTimestamp,
         creator_address: tx.from,
+        msg_sender: tx.from,
         image_url: null,
         description: null,
         twitter_link: fcStats?.x_username ? `https://x.com/${fcStats.x_username}` : null,
@@ -723,15 +776,16 @@ async function startListener() {
               const tweetUrl = ipfsData.tweet_url || '';
               const isValidTweet = tweetUrl.includes('twitter.com') || tweetUrl.includes('x.com');
 
-              if (!isValidTweet) {
-                console.log(`⚠️ Skipping (no valid tweet URL): ${createdToken}`);
-                console.log('\x1b[35m%s\x1b[0m', '----------------------------------------');
-                return;
-              }
-
               const imageUrl = ipfsData.image
                 ? ipfsData.image.replace('ipfs://', gatewayBase)
                 : null;
+
+              // Build social links from IPFS metadata
+              const socialLinks = [];
+              if (ipfsData.website) {
+                const websiteUrl = ipfsData.website.startsWith('http') ? ipfsData.website : `https://${ipfsData.website}`;
+                socialLinks.push({ name: 'website', link: websiteUrl });
+              }
 
               broadcastToken({
                 contract_address: createdToken,
@@ -741,17 +795,23 @@ async function startListener() {
                 tx_hash: tx.hash,
                 created_at: blockTimestamp,
                 creator_address: tx.from,
+                msg_sender: tx.from,
                 image_url: imageUrl,
                 description: ipfsData.description || null,
-                twitter_link: tweetUrl,
+                twitter_link: isValidTweet ? tweetUrl : null,
                 factory_type: "bankr",
+                extensions: ipfsData.extensions || null,
+                socialLinks: socialLinks.length > 0 ? socialLinks : undefined,
                 social_context: {
                   interface: "Bankr",
-                  platform: "X",
-                  messageId: tweetUrl
+                  platform: isValidTweet ? "X" : "Bankr",
+                  messageId: isValidTweet ? tweetUrl : '',
                 }
               });
-              console.log(`✅ ${ipfsData.name} ($${ipfsData.symbol}) — ${(performance.now() - t0).toFixed(0)}ms total`);
+              console.log(`✅ ${ipfsData.name} ($${ipfsData.symbol})${isValidTweet ? '' : ' (no tweet)'} — ${(performance.now() - t0).toFixed(0)}ms total`);
+
+              // Background: enrich with Bankr API for deployer/feeRecipient X usernames
+              enrichBankrToken(createdToken).catch(() => {});
             } else {
               console.error(`⚠️ IPFS fetch failed for ${ipfsCid}`);
               broadcastToken({
@@ -762,6 +822,7 @@ async function startListener() {
                 tx_hash: tx.hash,
                 created_at: blockTimestamp,
                 creator_address: tx.from,
+                msg_sender: tx.from,
                 image_url: null,
                 description: null,
                 twitter_link: null,

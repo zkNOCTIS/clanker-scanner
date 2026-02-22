@@ -166,6 +166,14 @@ function HomeContent() {
           setTokens(prev => prev.map(t =>
             t.contract_address.toLowerCase() === ca ? { ...t, ...updated } : t
           ));
+        } else if (msg.type === "token_update") {
+          // Partial update (e.g. Bankr deployer/feeRecipient enrichment)
+          const ca = (msg.contract_address as string).toLowerCase();
+          const updates = msg.updates as Partial<ClankerToken>;
+          console.log(`[WS] Token update: ${ca.slice(0, 10)}...`, Object.keys(updates));
+          setTokens(prev => prev.map(t =>
+            t.contract_address.toLowerCase() === ca ? { ...t, ...updates } : t
+          ));
         }
       };
 
@@ -228,10 +236,10 @@ function HomeContent() {
           const description = data.description || '';
           const tweetUrl = data.tweet_url || '';
 
-          // Only filter out if there is NO valid tweet link
+          // Only filter out if there is NO valid tweet link AND not a Bankr token
           const isValidTweet = tweetUrl.includes('twitter.com') || tweetUrl.includes('x.com');
 
-          if (!isValidTweet) {
+          if (!isValidTweet && token.factory_type !== 'bankr') {
             console.log(`Hidden invalid token (no tweet): ${token.contract_address} (${description})`);
             if (token.ipfs_cid) invalidRef.current.add(token.ipfs_cid);
             // Remove from list
